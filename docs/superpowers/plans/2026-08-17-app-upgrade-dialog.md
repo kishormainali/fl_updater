@@ -24,7 +24,7 @@
 - Default `minimumFetchInterval` is `Duration(hours: 12)` (matches the Firebase SDK's own default), set explicitly via `setConfigSettings` before every `fetchAndActivate()` — Remote Config's usage-based pricing (effective 2026-09-01) makes fetch volume a real cost, not just a nice-to-have to minimize.
 - `checkForUpdate()` skips the fetch entirely under `kDebugMode` (returns `UpdateStatus.none`, no platform channel touched) unless `enableInDebugMode: true` is passed — avoids a fetch (and a surprise dialog) on every debug hot restart.
 - Android store URI: `market://details?id=<package>`, fallback `https://play.google.com/store/apps/details?id=<package>`.
-- iOS store URI: `itms-apps://itunes.apple.com/app/id<appId>`, fallback `https://apps.apple.com/app/id<appId>`.
+- iOS: presents the App Store page in-app via StoreKit's `SKStoreProductViewController` (`SKStoreProductParameterITunesItemIdentifier: appId`), not a URL scheme; falls back to `https://apps.apple.com/app/id<appId>` only if StoreKit fails to load the product. (Changed mid-plan from an `itms-apps://` URL scheme — see Task 6's ruling.)
 - Method channel name (must match across Dart/Android/iOS): `com.kishormainali.fl_updater`.
 
 **Design note beyond the spec's literal file list:** to avoid a circular import between `lib/fl_updater.dart` (which must `export 'src/update_wrapper.dart'`) and `lib/src/update_wrapper.dart` (which needs the dialog-showing logic), the dialog-presentation logic is factored into a new shared file `lib/src/dialog_presenter.dart`, used by both `FlUpdater.showUpdateDialog` and `FlUpdaterWrapper`. This keeps the two entry points behaviorally identical without one importing the other.
@@ -772,6 +772,7 @@ git commit -m "feat: implement Android store-opening via market intent"
 
 **Files:**
 - Modify: `ios/fl_updater/Sources/fl_updater/FlUpdaterPlugin.swift` (rewrite)
+- Modify: `ios/fl_updater.podspec` (declare the `StoreKit` framework dependency)
 
 **Interfaces:**
 - Consumes: method channel `com.kishormainali.fl_updater`, method `openStore` with args `iosAppId` (nullable String) from Task 4.
@@ -780,14 +781,17 @@ git commit -m "feat: implement Android store-opening via market intent"
 
 **Decision:** No automated iOS unit test is added (same rationale as Task 5). Verified manually on an iOS simulator (Task 12).
 
+**Ruling (mid-plan course correction):** the controller was instructed mid-execution to use StoreKit instead of the `itms-apps://` URL scheme for presenting the App Store page. `SKStoreProductViewController` presents the product page as an in-app modal — the user never leaves the host app — rather than switching to the App Store app. It needs a root `UIViewController` to present from (obtained via `UIApplication.shared.connectedScenes`) and a delegate to dismiss itself when the user is done. The `https://apps.apple.com/app/id<appId>` URL remains as a last-resort fallback for when StoreKit itself can't load the product (no root view controller found, network error, invalid id) — that fallback is a different mechanism (a plain web/App-Store-app handoff) than the itms-apps scheme being replaced, so keeping it does not reintroduce what was removed; it's the same "never leave the user stuck" philosophy already used for Android's market:// → https:// fallback.
+
 - [ ] **Step 1: Rewrite the plugin**
 
 ```swift
 // ios/fl_updater/Sources/fl_updater/FlUpdaterPlugin.swift
 import Flutter
 import UIKit
+import StoreKit
 
-public class FlUpdaterPlugin: NSObject, FlutterPlugin {
+public class FlUpdaterPlugin: NSObject, FlutterPlugin, SKStoreProductViewControllerDelegate {
   public static func register(with registrar: FlutterPluginRegistrar) {
     let channel = FlutterMethodChannel(name: "com.kishormainali.fl_updater", binaryMessenger: registrar.messenger())
     let instance = FlUpdaterPlugin()
@@ -811,27 +815,65 @@ public class FlUpdaterPlugin: NSObject, FlutterPlugin {
       return
     }
 
-    guard let storeUrl = URL(string: "itms-apps://itunes.apple.com/app/id\(appId)") else {
-      result(FlutterError(code: "INVALID_URL", message: "Could not build store URL", details: nil))
+    guard let rootViewController = UIApplication.shared.connectedScenes
+      .compactMap({ ($0 as? UIWindowScene)?.keyWindow })
+      .first(where: { $0.isKeyWindow })?.rootViewController else {
+      openStoreWebFallback(appId: appId, result: result)
       return
     }
 
-    if UIApplication.shared.canOpenURL(storeUrl) {
-      UIApplication.shared.open(storeUrl, options: [:]) { _ in result(nil) }
-    } else if let webUrl = URL(string: "https://apps.apple.com/app/id\(appId)") {
-      UIApplication.shared.open(webUrl, options: [:]) { _ in result(nil) }
-    } else {
-      result(FlutterError(code: "CANNOT_OPEN", message: "Could not open App Store", details: nil))
+    let storeViewController = SKStoreProductViewController()
+    storeViewController.delegate = self
+    let parameters = [SKStoreProductParameterITunesItemIdentifier: appId]
+    storeViewController.loadProduct(withParameters: parameters) { [weak self] success, _ in
+      DispatchQueue.main.async {
+        if success {
+          rootViewController.present(storeViewController, animated: true)
+          result(nil)
+        } else {
+          self?.openStoreWebFallback(appId: appId, result: result)
+        }
+      }
     }
+  }
+
+  private func openStoreWebFallback(appId: String, result: @escaping FlutterResult) {
+    guard let webUrl = URL(string: "https://apps.apple.com/app/id\(appId)") else {
+      result(FlutterError(code: "CANNOT_OPEN", message: "Could not open App Store", details: nil))
+      return
+    }
+    UIApplication.shared.open(webUrl, options: [:]) { opened in
+      if opened {
+        result(nil)
+      } else {
+        result(FlutterError(code: "CANNOT_OPEN", message: "Could not open App Store", details: nil))
+      }
+    }
+  }
+
+  public func productViewControllerDidFinish(_ viewController: SKStoreProductViewController) {
+    viewController.dismiss(animated: true, completion: nil)
   }
 }
 ```
 
-- [ ] **Step 2: Commit**
+- [ ] **Step 2: Declare the StoreKit framework dependency**
+
+In `ios/fl_updater.podspec`, add a `s.frameworks` line so CocoaPods links `StoreKit`:
+
+```ruby
+  s.dependency 'Flutter'
+  s.platform = :ios, '15.0'
+  s.frameworks = 'StoreKit'
+```
+
+(Insert the new `s.frameworks` line directly after the existing `s.platform = :ios, '15.0'` line.)
+
+- [ ] **Step 3: Commit**
 
 ```bash
-git add ios/fl_updater/Sources/fl_updater/FlUpdaterPlugin.swift
-git commit -m "feat: implement iOS store-opening and fix channel name mismatch"
+git add ios/fl_updater/Sources/fl_updater/FlUpdaterPlugin.swift ios/fl_updater.podspec
+git commit -m "feat: implement iOS store-opening via StoreKit, fix channel name mismatch"
 ```
 
 ---
@@ -1822,7 +1864,7 @@ Expected: `No issues found!` in both.
 
 - [ ] **Step 5: Manual verification — iOS**
 
-1. Repeat Step 4 on an iOS simulator, first setting `_iosAppId` in `example/lib/main.dart` to any real numeric App Store id (e.g. an existing app's id) to confirm the App Store deep link fires.
+1. Repeat Step 4 on an iOS simulator, first setting `_iosAppId` in `example/lib/main.dart` to any real numeric App Store id (e.g. an existing app's id) to confirm the App Store product page presents in-app via StoreKit (a modal sheet, not a switch to the App Store app) and that tapping the modal's own close button returns to the example app. Setting an invalid/nonexistent id should exercise the `https://apps.apple.com/...` fallback instead.
 
 - [ ] **Step 6: Commit**
 
