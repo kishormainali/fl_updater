@@ -13,6 +13,7 @@ dependencies:
   plugin_platform_interface: ^2.1.8
   firebase_remote_config: ^6.5.6
   shared_preferences: ^2.5.5
+  package_info_plus: ^10.2.1
 
 dev_dependencies:
   flutter_test:
