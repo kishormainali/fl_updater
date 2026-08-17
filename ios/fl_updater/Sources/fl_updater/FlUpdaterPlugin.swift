@@ -33,7 +33,8 @@ public class FlUpdaterPlugin: NSObject, FlutterPlugin, SKStoreProductViewControl
 
     guard let rootViewController = UIApplication.shared.connectedScenes
       .compactMap({ ($0 as? UIWindowScene)?.keyWindow })
-      .first(where: { $0.isKeyWindow })?.rootViewController else {
+      .first(where: { $0.isKeyWindow })?.rootViewController,
+      rootViewController.presentedViewController == nil else {
       openStoreWebFallback(appId: appId, result: result)
       return
     }
