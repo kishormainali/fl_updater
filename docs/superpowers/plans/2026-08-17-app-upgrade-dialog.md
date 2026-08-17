@@ -13,13 +13,16 @@
 ## Global Constraints
 
 - No `url_launcher` dependency — store opening goes through the platform channel only.
-- Remote Config keys are exactly: `fl_updater_latest_version`, `fl_updater_min_version`, `fl_updater_ios_app_id`, `fl_updater_android_package_id`.
+- Remote Config keys are exactly: `fl_updater_latest_version`, `fl_updater_min_version`. Nothing else lives in Remote Config.
 - `fl_updater_min_version` defaults to `"0.0.0"` when unset (force update never triggers unless explicitly configured).
+- `iosAppId`/`androidPackageId` are **not** Remote Config values — they're explicit Dart parameters on `FlUpdaterWrapper`, `FlUpdater.checkForUpdate`, and `FlUpdater.showUpdateDialog`, threaded through to `RemoteConfigService.checkForUpdate` and from there into `UpdateInfo`.
 - Default `snoozeDuration` is `Duration(days: 3)`, configurable per call.
 - Force updates (`UpdateStatus.force`) always ignore snooze and are never dismissible (no barrier dismiss, no back button via `PopScope(canPop: false)`).
 - `checkForUpdate()` fails open: any Remote Config fetch error returns `UpdateStatus.none`, logged via `debugPrint`, never thrown to the caller.
 - No analytics/telemetry hooks.
 - No lifecycle-based (app-resume) rechecking — `FlUpdaterWrapper` checks exactly once per cold start.
+- Default `minimumFetchInterval` is `Duration(hours: 12)` (matches the Firebase SDK's own default), set explicitly via `setConfigSettings` before every `fetchAndActivate()` — Remote Config's usage-based pricing (effective 2026-09-01) makes fetch volume a real cost, not just a nice-to-have to minimize.
+- `checkForUpdate()` skips the fetch entirely under `kDebugMode` (returns `UpdateStatus.none`, no platform channel touched) unless `enableInDebugMode: true` is passed — avoids a fetch (and a surprise dialog) on every debug hot restart.
 - Android store URI: `market://details?id=<package>`, fallback `https://play.google.com/store/apps/details?id=<package>`.
 - iOS store URI: `itms-apps://itunes.apple.com/app/id<appId>`, fallback `https://apps.apple.com/app/id<appId>`.
 - Method channel name (must match across Dart/Android/iOS): `com.kishormainali.fl_updater`.
@@ -190,7 +193,7 @@ git commit -m "feat: add version comparator and update status enum"
 
 **Interfaces:**
 - Consumes: `UpdateStatus` and `VersionComparator.compare(...)` from Task 1.
-- Produces: `class UpdateInfo { currentVersion, latestVersion, status, iosAppId, androidPackageId; UpdateInfo.fromRemoteConfigValues({required Map<String,String> values, required String currentVersion}); UpdateInfo copyWith({UpdateStatus? status}); }`
+- Produces: `class UpdateInfo { currentVersion, latestVersion, status, iosAppId, androidPackageId; UpdateInfo.fromRemoteConfigValues({required Map<String,String> values, required String currentVersion, String? iosAppId, String? androidPackageId}); UpdateInfo copyWith({UpdateStatus? status}); }`. Note: `values` only ever contains `fl_updater_latest_version`/`fl_updater_min_version` — `iosAppId`/`androidPackageId` are passed straight through by the caller, not parsed out of `values`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -249,14 +252,34 @@ void main() {
       expect(info.status, UpdateStatus.none);
     });
 
-    test('treats empty string ids as null', () {
+    test('passes through caller-supplied iosAppId and androidPackageId as-is', () {
       final info = UpdateInfo.fromRemoteConfigValues(
-        values: const {
-          'fl_updater_latest_version': '1.0.0',
-          'fl_updater_ios_app_id': '',
-          'fl_updater_android_package_id': '',
-        },
+        values: const {'fl_updater_latest_version': '1.0.0'},
         currentVersion: '1.0.0',
+        iosAppId: '123456789',
+        androidPackageId: 'com.example.app',
+      );
+
+      expect(info.iosAppId, '123456789');
+      expect(info.androidPackageId, 'com.example.app');
+    });
+
+    test('iosAppId and androidPackageId default to null when omitted', () {
+      final info = UpdateInfo.fromRemoteConfigValues(
+        values: const {'fl_updater_latest_version': '1.0.0'},
+        currentVersion: '1.0.0',
+      );
+
+      expect(info.iosAppId, isNull);
+      expect(info.androidPackageId, isNull);
+    });
+
+    test('treats caller-supplied empty string ids as null', () {
+      final info = UpdateInfo.fromRemoteConfigValues(
+        values: const {'fl_updater_latest_version': '1.0.0'},
+        currentVersion: '1.0.0',
+        iosAppId: '',
+        androidPackageId: '',
       );
 
       expect(info.iosAppId, isNull);
@@ -328,6 +351,8 @@ class UpdateInfo {
   factory UpdateInfo.fromRemoteConfigValues({
     required Map<String, String> values,
     required String currentVersion,
+    String? iosAppId,
+    String? androidPackageId,
   }) {
     final rawLatest = values['fl_updater_latest_version'];
     final latestVersion = (rawLatest != null && rawLatest.isNotEmpty) ? rawLatest : currentVersion;
@@ -340,9 +365,6 @@ class UpdateInfo {
       latestVersion: latestVersion,
       minVersion: minVersion,
     );
-
-    final iosAppId = values['fl_updater_ios_app_id'];
-    final androidPackageId = values['fl_updater_android_package_id'];
 
     return UpdateInfo(
       currentVersion: currentVersion,
@@ -394,7 +416,7 @@ class UpdateInfo {
 - [ ] **Step 5: Run test to verify it passes**
 
 Run: `flutter test test/models/update_info_test.dart`
-Expected: PASS (7/7)
+Expected: PASS (9/9)
 
 - [ ] **Step 6: Commit**
 
@@ -819,19 +841,63 @@ git commit -m "feat: implement iOS store-opening and fix channel name mismatch"
 **Files:**
 - Modify: `pubspec.yaml` (adds `package_info_plus`)
 - Create: `lib/src/remote_config_service.dart`
+- Test: `test/remote_config_service_test.dart`
 
 **Interfaces:**
 - Consumes: `UpdateInfo.fromRemoteConfigValues` (Task 2), `UpdateInfo.copyWith` (Task 2), `FlUpdaterSnoozeStore` (Task 3).
-- Produces: `class RemoteConfigService { RemoteConfigService({FirebaseRemoteConfig? remoteConfig, FlUpdaterSnoozeStore? snoozeStore}); Future<UpdateInfo> checkForUpdate({Duration snoozeDuration = const Duration(days: 3)}); }`
+- Produces: `class RemoteConfigService { RemoteConfigService({FirebaseRemoteConfig? remoteConfig, FlUpdaterSnoozeStore? snoozeStore}); Future<UpdateInfo> checkForUpdate({Duration snoozeDuration = const Duration(days: 3), Duration minimumFetchInterval = const Duration(hours: 12), bool enableInDebugMode = false, String? iosAppId, String? androidPackageId}); }`
 
-**Decision:** No automated unit test for this file — it is thin IO glue over `FirebaseRemoteConfig.instance` and `PackageInfo.fromPlatform()`, both of which require heavy platform-channel mocking to fake. This matches the spec's testing section, which lists unit tests only for `VersionComparator`, `UpdateInfo`, the snooze store, and the method channel. Correctness is verified via `flutter analyze` here and manually in the example app (Task 12).
+**Decision:** The debug-mode gate (Step 1–4 below) is genuinely unit-testable and gets a real TDD test. The rest of `checkForUpdate` — the actual `FirebaseRemoteConfig.instance` fetch path — is not: it requires heavy platform-channel mocking to fake, matching the spec's testing section, which lists unit tests only for `VersionComparator`, `UpdateInfo`, the snooze store, and the method channel. That path is verified via `flutter analyze` and manually in the example app (Task 12).
+
+**Pricing note:** Remote Config is moving to usage-based pricing on 2026-09-01, so fetches now have a cost dimension. `setConfigSettings` is called with an explicit `minimumFetchInterval` before every `fetchAndActivate()` — the Firebase SDK serves cached values instead of a network fetch when called again inside that window, so this is a real lever for controlling fetch volume, not just documentation. Default matches the Firebase SDK's own default (12 hours); callers can widen it via `FlUpdater`/`FlUpdaterWrapper` to cut volume further.
+
+**Debug-mode note:** every hot restart during development is a cold start, so an unguarded `FlUpdaterWrapper` would fetch (and could pop a dialog) on each one. `checkForUpdate` checks `kDebugMode` **before touching any platform channel** (`PackageInfo.fromPlatform()` or `FirebaseRemoteConfig`) and short-circuits to `UpdateStatus.none` unless `enableInDebugMode: true` is passed. `FirebaseRemoteConfig.instance` is also resolved lazily (a getter, not in the constructor initializer list) so constructing a `RemoteConfigService()` never touches Firebase until a check actually needs it — this is also what makes the debug-gate test below able to run without any Firebase test setup: `flutter test` runs in JIT/debug mode, so `kDebugMode` is `true` there, and the gate returns before any platform channel is touched.
 
 - [ ] **Step 1: Add the dependency**
 
 Run: `flutter pub add package_info_plus`
 Expected: `pubspec.yaml` gains a `package_info_plus: ^x.y.z` line.
 
-- [ ] **Step 2: Create the service**
+- [ ] **Step 2: Write the failing test for the debug-mode gate**
+
+```dart
+// test/remote_config_service_test.dart
+import 'package:flutter_test/flutter_test.dart';
+import 'package:fl_updater/src/models/update_status.dart';
+import 'package:fl_updater/src/remote_config_service.dart';
+
+void main() {
+  // flutter test runs in JIT/debug mode, so kDebugMode is true here —
+  // these tests exercise the default (fetch-disabled) debug behavior
+  // without needing any Firebase or package_info_plus test setup.
+  test('checkForUpdate skips the fetch and returns none in debug mode by default', () async {
+    final service = RemoteConfigService();
+
+    final info = await service.checkForUpdate();
+
+    expect(info.status, UpdateStatus.none);
+  });
+
+  test('checkForUpdate passes iosAppId/androidPackageId through even when gated', () async {
+    final service = RemoteConfigService();
+
+    final info = await service.checkForUpdate(
+      iosAppId: '123',
+      androidPackageId: 'com.example.app',
+    );
+
+    expect(info.iosAppId, '123');
+    expect(info.androidPackageId, 'com.example.app');
+  });
+}
+```
+
+- [ ] **Step 3: Run the test to verify it fails**
+
+Run: `flutter test test/remote_config_service_test.dart`
+Expected: FAIL — `lib/src/remote_config_service.dart` doesn't exist yet.
+
+- [ ] **Step 4: Create the service**
 
 ```dart
 // lib/src/remote_config_service.dart
@@ -845,30 +911,61 @@ import 'snooze_store.dart';
 
 class RemoteConfigService {
   RemoteConfigService({FirebaseRemoteConfig? remoteConfig, FlUpdaterSnoozeStore? snoozeStore})
-      : _remoteConfig = remoteConfig ?? FirebaseRemoteConfig.instance,
+      : _providedRemoteConfig = remoteConfig,
         _snoozeStore = snoozeStore ?? FlUpdaterSnoozeStore();
 
-  final FirebaseRemoteConfig _remoteConfig;
+  // Resolved lazily via the getter below so constructing a RemoteConfigService
+  // never touches FirebaseRemoteConfig.instance until a check actually needs
+  // it — that's what keeps the debug-mode-gated tests above free of any
+  // Firebase test setup.
+  final FirebaseRemoteConfig? _providedRemoteConfig;
   final FlUpdaterSnoozeStore _snoozeStore;
+
+  FirebaseRemoteConfig get _remoteConfig => _providedRemoteConfig ?? FirebaseRemoteConfig.instance;
 
   static const _keys = [
     'fl_updater_latest_version',
     'fl_updater_min_version',
-    'fl_updater_ios_app_id',
-    'fl_updater_android_package_id',
   ];
 
-  Future<UpdateInfo> checkForUpdate({Duration snoozeDuration = const Duration(days: 3)}) async {
+  Future<UpdateInfo> checkForUpdate({
+    Duration snoozeDuration = const Duration(days: 3),
+    Duration minimumFetchInterval = const Duration(hours: 12),
+    bool enableInDebugMode = false,
+    String? iosAppId,
+    String? androidPackageId,
+  }) async {
+    if (kDebugMode && !enableInDebugMode) {
+      return UpdateInfo(
+        currentVersion: '',
+        latestVersion: '',
+        status: UpdateStatus.none,
+        iosAppId: iosAppId,
+        androidPackageId: androidPackageId,
+      );
+    }
+
     final packageInfo = await PackageInfo.fromPlatform();
     final currentVersion = packageInfo.version;
 
     try {
+      await _remoteConfig.setConfigSettings(
+        RemoteConfigSettings(
+          fetchTimeout: const Duration(minutes: 1),
+          minimumFetchInterval: minimumFetchInterval,
+        ),
+      );
       await _remoteConfig.setDefaults({for (final key in _keys) key: ''});
       await _remoteConfig.fetchAndActivate();
 
       final values = {for (final key in _keys) key: _remoteConfig.getString(key)};
 
-      var info = UpdateInfo.fromRemoteConfigValues(values: values, currentVersion: currentVersion);
+      var info = UpdateInfo.fromRemoteConfigValues(
+        values: values,
+        currentVersion: currentVersion,
+        iosAppId: iosAppId,
+        androidPackageId: androidPackageId,
+      );
 
       if (info.status == UpdateStatus.soft && await _snoozeStore.isSnoozed(info.latestVersion)) {
         info = info.copyWith(status: UpdateStatus.none);
@@ -881,22 +978,29 @@ class RemoteConfigService {
         currentVersion: currentVersion,
         latestVersion: currentVersion,
         status: UpdateStatus.none,
+        iosAppId: iosAppId,
+        androidPackageId: androidPackageId,
       );
     }
   }
 }
 ```
 
-- [ ] **Step 3: Verify it compiles**
+- [ ] **Step 5: Run the test to verify it passes**
+
+Run: `flutter test test/remote_config_service_test.dart`
+Expected: PASS (2/2)
+
+- [ ] **Step 6: Verify the whole file compiles cleanly**
 
 Run: `flutter analyze lib/src/remote_config_service.dart`
 Expected: `No issues found!`
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add pubspec.yaml pubspec.lock lib/src/remote_config_service.dart
-git commit -m "feat: add Remote Config service with fail-open error handling"
+git add pubspec.yaml pubspec.lock lib/src/remote_config_service.dart test/remote_config_service_test.dart
+git commit -m "feat: add Remote Config service with debug-mode gating and fail-open error handling"
 ```
 
 ---
@@ -1238,7 +1342,7 @@ git commit -m "feat: add shared dialog-presentation helper"
 
 **Interfaces:**
 - Consumes: `RemoteConfigService` (Task 7), `FlUpdaterSnoozeStore` (Task 3), `presentUpdateDialog` (Task 9), `FlUpdaterPlatform` (Task 4).
-- Produces: `class FlUpdater { FlUpdater({RemoteConfigService? remoteConfigService, FlUpdaterSnoozeStore? snoozeStore}); Future<UpdateInfo> checkForUpdate({Duration snoozeDuration}); Future<void> showUpdateDialog(BuildContext context, {UpdateInfo? info, FlUpdaterDialogBuilder? dialogBuilder, String? title, String? message, String? updateButtonText, String? laterButtonText, FlUpdaterDialogStyle? style, Duration snoozeDuration}); }`. Also exports `UpdateInfo`, `UpdateStatus`, `FlUpdaterDialog`, `FlUpdaterDialogBuilder`, `FlUpdaterDialogStyle`, and `FlUpdaterWrapper` (Task 11) as the package's public surface.
+- Produces: `class FlUpdater { FlUpdater({RemoteConfigService? remoteConfigService, FlUpdaterSnoozeStore? snoozeStore}); Future<UpdateInfo> checkForUpdate({Duration snoozeDuration, Duration minimumFetchInterval, bool enableInDebugMode, String? iosAppId, String? androidPackageId}); Future<void> showUpdateDialog(BuildContext context, {UpdateInfo? info, String? iosAppId, String? androidPackageId, FlUpdaterDialogBuilder? dialogBuilder, String? title, String? message, String? updateButtonText, String? laterButtonText, FlUpdaterDialogStyle? style, Duration snoozeDuration, Duration minimumFetchInterval, bool enableInDebugMode}); }`. Also exports `UpdateInfo`, `UpdateStatus`, `FlUpdaterDialog`, `FlUpdaterDialogBuilder`, `FlUpdaterDialogStyle`, and `FlUpdaterWrapper` (Task 11) as the package's public surface.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1275,6 +1379,17 @@ void main() {
 
   test('$MethodChannelFlUpdater is the default instance', () {
     expect(FlUpdaterPlatform.instance, isInstanceOf<MethodChannelFlUpdater>());
+  });
+
+  test('checkForUpdate returns none by default in debug mode with no injected dependencies', () async {
+    // No mocked platform, no mocked RemoteConfigService, no Firebase setup —
+    // this only works because RemoteConfigService gates on kDebugMode before
+    // touching any platform channel (see Task 7).
+    final updater = FlUpdater();
+
+    final info = await updater.checkForUpdate();
+
+    expect(info.status, UpdateStatus.none);
   });
 
   testWidgets('showUpdateDialog does nothing when status is none', (tester) async {
@@ -1408,13 +1523,27 @@ class FlUpdater {
   final RemoteConfigService _remoteConfigService;
   final FlUpdaterSnoozeStore _snoozeStore;
 
-  Future<UpdateInfo> checkForUpdate({Duration snoozeDuration = const Duration(days: 3)}) {
-    return _remoteConfigService.checkForUpdate(snoozeDuration: snoozeDuration);
+  Future<UpdateInfo> checkForUpdate({
+    Duration snoozeDuration = const Duration(days: 3),
+    Duration minimumFetchInterval = const Duration(hours: 12),
+    bool enableInDebugMode = false,
+    String? iosAppId,
+    String? androidPackageId,
+  }) {
+    return _remoteConfigService.checkForUpdate(
+      snoozeDuration: snoozeDuration,
+      minimumFetchInterval: minimumFetchInterval,
+      enableInDebugMode: enableInDebugMode,
+      iosAppId: iosAppId,
+      androidPackageId: androidPackageId,
+    );
   }
 
   Future<void> showUpdateDialog(
     BuildContext context, {
     UpdateInfo? info,
+    String? iosAppId,
+    String? androidPackageId,
     FlUpdaterDialogBuilder? dialogBuilder,
     String? title,
     String? message,
@@ -1422,8 +1551,17 @@ class FlUpdater {
     String? laterButtonText,
     FlUpdaterDialogStyle? style,
     Duration snoozeDuration = const Duration(days: 3),
+    Duration minimumFetchInterval = const Duration(hours: 12),
+    bool enableInDebugMode = false,
   }) async {
-    final resolvedInfo = info ?? await checkForUpdate(snoozeDuration: snoozeDuration);
+    final resolvedInfo = info ??
+        await checkForUpdate(
+          snoozeDuration: snoozeDuration,
+          minimumFetchInterval: minimumFetchInterval,
+          enableInDebugMode: enableInDebugMode,
+          iosAppId: iosAppId,
+          androidPackageId: androidPackageId,
+        );
     await presentUpdateDialog(
       context,
       info: resolvedInfo,
@@ -1440,6 +1578,8 @@ class FlUpdater {
 }
 ```
 
+Note: when `info` is supplied directly, `iosAppId`/`androidPackageId` on `showUpdateDialog` are ignored — they only take effect when `checkForUpdate` runs internally. The debug-gated forwarding (`checkForUpdate` → `RemoteConfigService.checkForUpdate` → `UpdateInfo`) is covered by Task 7's tests and the new `checkForUpdate returns none by default in debug mode` test above. Forwarding through the actual Firebase fetch path (`enableInDebugMode: true` or a release build) is not automated — it requires a live `FirebaseRemoteConfig.instance`, which cannot be constructed in a plain `flutter test` run without Firebase test scaffolding. Verified manually in the example app (Task 12).
+
 Note: this imports `src/update_wrapper.dart` transitively via the `export` directive; Task 11 must exist for this file to compile. If executing tasks in order, Step 4 below will fail to analyze cleanly until Task 11 is done — that's expected; the test in Step 2/5 only needs `FlUpdater`, and `flutter test` will still fail to compile without `update_wrapper.dart` existing. **Create an empty placeholder first** so this task is self-contained:
 
 ```dart
@@ -1450,7 +1590,7 @@ export 'update_dialog.dart' show FlUpdaterDialogBuilder, FlUpdaterDialogStyle;
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `flutter test test/fl_updater_test.dart`
-Expected: PASS (4/4)
+Expected: PASS (5/5)
 
 - [ ] **Step 5: Commit**
 
@@ -1468,7 +1608,7 @@ git commit -m "feat: implement public FlUpdater API (checkForUpdate, showUpdateD
 
 **Interfaces:**
 - Consumes: `RemoteConfigService` (Task 7), `FlUpdaterSnoozeStore` (Task 3), `presentUpdateDialog` (Task 9), `FlUpdaterDialogBuilder`/`FlUpdaterDialogStyle` (Task 8).
-- Produces: `class FlUpdaterWrapper extends StatefulWidget { const FlUpdaterWrapper({required Widget child, FlUpdaterDialogBuilder? dialogBuilder, String? title, String? message, String? updateButtonText, String? laterButtonText, FlUpdaterDialogStyle? style, Duration snoozeDuration = const Duration(days: 3)}); }`. Meant to be used as `MaterialApp(builder: (context, child) => FlUpdaterWrapper(child: child!))`.
+- Produces: `class FlUpdaterWrapper extends StatefulWidget { const FlUpdaterWrapper({required Widget child, String? iosAppId, String? androidPackageId, FlUpdaterDialogBuilder? dialogBuilder, String? title, String? message, String? updateButtonText, String? laterButtonText, FlUpdaterDialogStyle? style, Duration snoozeDuration = const Duration(days: 3), Duration minimumFetchInterval = const Duration(hours: 12), bool enableInDebugMode = false}); }`. Meant to be used as `MaterialApp(builder: (context, child) => FlUpdaterWrapper(child: child!))`. By default this means the wrapper is a no-op in debug builds — see Task 7's debug-mode note.
 
 **Decision:** No automated test — checking for updates requires a live/faked Firebase Remote Config instance, which the spec's testing section does not call for automated coverage of. Verified manually in the example app (Task 12).
 
@@ -1487,6 +1627,8 @@ class FlUpdaterWrapper extends StatefulWidget {
   const FlUpdaterWrapper({
     super.key,
     required this.child,
+    this.iosAppId,
+    this.androidPackageId,
     this.dialogBuilder,
     this.title,
     this.message,
@@ -1494,9 +1636,13 @@ class FlUpdaterWrapper extends StatefulWidget {
     this.laterButtonText,
     this.style,
     this.snoozeDuration = const Duration(days: 3),
+    this.minimumFetchInterval = const Duration(hours: 12),
+    this.enableInDebugMode = false,
   });
 
   final Widget child;
+  final String? iosAppId;
+  final String? androidPackageId;
   final FlUpdaterDialogBuilder? dialogBuilder;
   final String? title;
   final String? message;
@@ -1504,6 +1650,8 @@ class FlUpdaterWrapper extends StatefulWidget {
   final String? laterButtonText;
   final FlUpdaterDialogStyle? style;
   final Duration snoozeDuration;
+  final Duration minimumFetchInterval;
+  final bool enableInDebugMode;
 
   @override
   State<FlUpdaterWrapper> createState() => _FlUpdaterWrapperState();
@@ -1521,7 +1669,13 @@ class _FlUpdaterWrapperState extends State<FlUpdaterWrapper> {
 
   Future<void> _checkForUpdate() async {
     if (!mounted) return;
-    final info = await _remoteConfigService.checkForUpdate(snoozeDuration: widget.snoozeDuration);
+    final info = await _remoteConfigService.checkForUpdate(
+      snoozeDuration: widget.snoozeDuration,
+      minimumFetchInterval: widget.minimumFetchInterval,
+      enableInDebugMode: widget.enableInDebugMode,
+      iosAppId: widget.iosAppId,
+      androidPackageId: widget.androidPackageId,
+    );
     if (!mounted) return;
     await presentUpdateDialog(
       context,
@@ -1545,7 +1699,7 @@ class _FlUpdaterWrapperState extends State<FlUpdaterWrapper> {
 - [ ] **Step 2: Run the full test suite to confirm nothing broke**
 
 Run: `flutter test`
-Expected: All tests PASS (`version_comparator_test.dart`, `models/update_info_test.dart`, `snooze_store_test.dart`, `fl_updater_method_channel_test.dart`, `update_dialog_test.dart`, `fl_updater_test.dart`).
+Expected: All tests PASS (`version_comparator_test.dart`, `models/update_info_test.dart`, `snooze_store_test.dart`, `fl_updater_method_channel_test.dart`, `remote_config_service_test.dart`, `update_dialog_test.dart`, `fl_updater_test.dart`).
 
 - [ ] **Step 3: Commit**
 
@@ -1592,13 +1746,30 @@ Future<void> main() async {
   runApp(const MyApp());
 }
 
+// Set these to your app's real identifiers before shipping — the Play
+// Store package id and the numeric App Store id. Neither comes from
+// Remote Config; the wrapper takes them directly. Leaving androidPackageId
+// null falls back to the host app's own package name on Android; iOS has
+// no such fallback and needs a real numeric id to open the App Store.
+const _androidPackageId = 'com.kishormainali.fl_updater_example';
+const _iosAppId = '000000000';
+
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      builder: (context, child) => FlUpdaterWrapper(child: child!),
+      builder: (context, child) => FlUpdaterWrapper(
+        iosAppId: _iosAppId,
+        androidPackageId: _androidPackageId,
+        // This example app is specifically for exercising fl_updater during
+        // development, so it opts back into fetching while debugging. A real
+        // app normally leaves this false (the default) to avoid Remote
+        // Config fetches and surprise dialogs on every debug hot restart.
+        enableInDebugMode: true,
+        child: child!,
+      ),
       home: const HomePage(),
     );
   }
@@ -1611,6 +1782,9 @@ class HomePage extends StatelessWidget {
     final updater = FlUpdater();
     await updater.showUpdateDialog(
       context,
+      iosAppId: _iosAppId,
+      androidPackageId: _androidPackageId,
+      enableInDebugMode: true,
       style: const FlUpdaterDialogStyle(
         titleStyle: TextStyle(fontWeight: FontWeight.bold),
       ),
@@ -1640,14 +1814,15 @@ Expected: `No issues found!` in both.
 - [ ] **Step 4: Manual verification — Android**
 
 1. Set up a Firebase project for the example app: `cd example && flutterfire configure` (requires a Google/Firebase account; skip if `FlUpdaterWrapper`'s fail-open behavior is all you need to confirm).
-2. In the Firebase console, set Remote Config parameters `fl_updater_latest_version` to a version higher than `example/pubspec.yaml`'s version, and `fl_updater_android_package_id` to the example app's applicationId (see `example/android/app/build.gradle.kts`).
-3. Run `cd example && flutter run -d <android-emulator-id>`.
-4. Confirm the soft-update dialog appears automatically on launch, "Later" dismisses it and it does not reappear on a hot-restart within the snooze window, and "Update" opens (or attempts to open) the Play Store.
-5. Set `fl_updater_min_version` above the example app's version, relaunch, and confirm the dialog is now non-dismissible (no Later button, back button does nothing).
+2. In the Firebase console, set the Remote Config parameter `fl_updater_latest_version` to a version higher than `example/pubspec.yaml`'s version. Set `_androidPackageId` in `example/lib/main.dart` to the example app's actual applicationId (see `example/android/app/build.gradle.kts`) if it differs from the placeholder.
+3. Temporarily remove `enableInDebugMode: true` from both call sites in `example/lib/main.dart`, run `cd example && flutter run -d <android-emulator-id>`, and confirm no dialog appears and no Remote Config fetch happens (debug-mode default). Restore `enableInDebugMode: true` afterward — the remaining steps below need it.
+4. Run `cd example && flutter run -d <android-emulator-id>`.
+5. Confirm the soft-update dialog appears automatically on launch, "Later" dismisses it and it does not reappear on a hot-restart within the snooze window, and "Update" opens (or attempts to open) the Play Store.
+6. Set `fl_updater_min_version` above the example app's version, relaunch, and confirm the dialog is now non-dismissible (no Later button, back button does nothing).
 
 - [ ] **Step 5: Manual verification — iOS**
 
-1. Repeat Step 4 on an iOS simulator, setting `fl_updater_ios_app_id` to any numeric App Store id (e.g. an existing app's id) to confirm the App Store deep link fires.
+1. Repeat Step 4 on an iOS simulator, first setting `_iosAppId` in `example/lib/main.dart` to any real numeric App Store id (e.g. an existing app's id) to confirm the App Store deep link fires.
 
 - [ ] **Step 6: Commit**
 
@@ -1692,14 +1867,28 @@ Config, and opens the platform's App Store / Play Store page natively.
 | --- | --- | --- |
 | `fl_updater_latest_version` | string | Latest published version, e.g. `"2.3.0"` |
 | `fl_updater_min_version` | string | Versions below this trigger a blocking update. Defaults to `"0.0.0"` (never forces). |
-| `fl_updater_ios_app_id` | string | Numeric App Store id, required to open the App Store on iOS. |
-| `fl_updater_android_package_id` | string | Optional; defaults to the host app's own package name. |
+
+That's the whole schema — nothing else lives in Remote Config. The App Store
+id and Android package id are static per-app values, not something you'd
+toggle from a dashboard, so they're passed directly instead:
+
+```dart
+FlUpdaterWrapper(
+  iosAppId: '123456789',           // required on iOS — no on-device fallback
+  androidPackageId: 'com.you.app', // optional — defaults to the host app's own package name
+  child: child!,
+)
+```
 
 ## Automatic usage
 
 ```dart
 MaterialApp(
-  builder: (context, child) => FlUpdaterWrapper(child: child!),
+  builder: (context, child) => FlUpdaterWrapper(
+    iosAppId: '123456789',
+    androidPackageId: 'com.you.app',
+    child: child!,
+  ),
   home: const HomePage(),
 )
 ```
@@ -1711,7 +1900,32 @@ is available.
 
 ```dart
 final updater = FlUpdater();
-await updater.showUpdateDialog(context);
+await updater.showUpdateDialog(
+  context,
+  iosAppId: '123456789',
+  androidPackageId: 'com.you.app',
+);
+```
+
+## Fetch behavior and cost
+
+Remote Config moved to usage-based pricing on 2026-09-01, so `fl_updater`
+is deliberately conservative about fetching:
+
+- **Debug builds fetch nothing by default.** `kDebugMode` disables the
+  Remote Config check entirely (no dialog, no network call) so hot restarts
+  while developing don't burn fetches or pop up dialogs unannounced. Pass
+  `enableInDebugMode: true` to opt back in — e.g. in your own debug/staging
+  build of the example app.
+- **`minimumFetchInterval`** (default 12 hours, matching the Firebase SDK's
+  own default) caps how often a real fetch happens even in release builds;
+  repeated checks inside that window are served from the SDK's cache.
+
+```dart
+FlUpdaterWrapper(
+  minimumFetchInterval: const Duration(days: 1),
+  child: child!,
+)
 ```
 
 ## Customization
