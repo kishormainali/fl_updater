@@ -10,19 +10,19 @@
 The goal is to turn this into a working plugin that:
 1. Reads app-update configuration from Firebase Remote Config.
 2. Decides whether an update is available, and whether it must be forced (blocking) or is optional (dismissible).
-3. Shows a built-in dialog to the user.
-4. On tap, opens the correct app store page for the current platform using native APIs (not a generic browser URL).
+3. Automatically checks and shows a highly customizable dialog via a top-level wrapper widget, with an imperative API available for manual control.
+4. Lets the user snooze optional (soft) updates for a configurable period.
+5. On tap, opens the correct app store page for the current platform using native APIs (not a generic browser URL).
 
 ## Non-goals
 
 - No custom exception hierarchy or retry/backoff logic for Remote Config fetch — fail open and log.
-- No Remote-Config-driven dialog copy — copy is a Dart-side API concern (see below).
+- No Remote-Config-driven dialog copy — copy is a Dart-side API concern.
 - No `url_launcher` dependency — store opening is implemented directly via native platform channel code.
 - No analytics/telemetry hooks in v1.
+- No lifecycle-based (app-resume) rechecking in v1 — the wrapper checks once per cold start only.
 
 ## Architecture
-
-Four layers, following the existing plugin scaffold's structure:
 
 1. **Remote Config service** (`lib/src/remote_config_service.dart`)
    Wraps `firebase_remote_config`: sets defaults, calls `fetchAndActivate()`, reads the flat keys described below, and produces an `UpdateInfo`.
@@ -30,32 +30,79 @@ Four layers, following the existing plugin scaffold's structure:
 2. **Version comparison** (`lib/src/version_comparator.dart`)
    Uses `package_info_plus` to get the installed version, and compares it against `latest_version` / `min_version` from Remote Config using semantic-version rules. Produces an `UpdateStatus` enum: `none`, `soft` (update available, dismissible), `force` (installed version is below `min_version`, blocking).
 
-3. **Dialog widget** (`lib/src/update_dialog.dart`)
-   An adaptive `AlertDialog`.
-   - Force mode: `PopScope(canPop: false)`, `barrierDismissible: false`, no "Later" button — only path forward is tapping "Update".
-   - Soft mode: adds a "Later" button that just pops the dialog; the app is expected to re-check on next launch/resume (no persistent "don't ask again" storage in v1).
-   - Title, message, update-button text, and later-button text are optional parameters with sensible English defaults.
+3. **Snooze store** (`lib/src/snooze_store.dart`)
+   Backed by `shared_preferences`. Lets a soft update be snoozed for a configurable duration, per-version.
 
-4. **Store launcher** (platform channel — replaces the current `openAppStore` / `openGooglePlayStore` stubs)
+   ```dart
+   class FlUpdaterSnoozeStore {
+     Future<void> snooze(String version, Duration duration);
+     Future<bool> isSnoozed(String version);
+     Future<void> clear();
+   }
+   ```
+
+   Persists `fl_updater_snoozed_version` (string) and `fl_updater_snoozed_until` (epoch millis). `isSnoozed(version)` is `true` only if the stored version matches the version being checked **and** `DateTime.now()` is before the stored timestamp. A newer `latest_version` therefore automatically invalidates a prior snooze — the dialog reappears immediately for the new version even mid-snooze.
+
+   `checkForUpdate()` takes an optional `snoozeDuration` (default `Duration(days: 3)`). If `status == soft` and `isSnoozed(latestVersion)` is true, `checkForUpdate()` downgrades the returned status to `none`. **Force updates always ignore snooze** — they are never downgraded.
+
+4. **Dialog widget** (`lib/src/update_dialog.dart`)
+   Built-in adaptive `AlertDialog`, `FlUpdaterDialog`.
+   - Force mode: `PopScope(canPop: false)`, `barrierDismissible: false`, no "Later" button — only path forward is tapping "Update".
+   - Soft mode: adds a "Later" button. Tapping it calls `FlUpdaterSnoozeStore.snooze(latestVersion, snoozeDuration)` and then dismisses.
+   - Fully customizable at two levels:
+     - **Style params** for the built-in dialog: `FlUpdaterDialogStyle` (`backgroundColor`, `titleStyle`, `messageStyle`, `shape`, `icon`, `updateButtonStyle`, `laterButtonStyle`, `barrierColor`), plus `title`/`message`/`updateButtonText`/`laterButtonText` strings — all optional with sensible English defaults.
+     - **Full builder override**: `typedef FlUpdaterDialogBuilder = Widget Function(BuildContext context, UpdateInfo info, VoidCallback onUpdate, VoidCallback onLater)`. When supplied, this replaces `FlUpdaterDialog` entirely; `onUpdate`/`onLater` already carry the correct store-launch / snooze-and-dismiss behavior, so a fully custom widget still behaves correctly.
+
+5. **Wrapper widget** (`lib/src/update_wrapper.dart`)
+   `FlUpdaterWrapper`, a `StatefulWidget` meant to be used inside `MaterialApp.builder`:
+
+   ```dart
+   MaterialApp(
+     builder: (context, child) => FlUpdaterWrapper(child: child!),
+     home: ...,
+   )
+   ```
+
+   ```dart
+   class FlUpdaterWrapper extends StatefulWidget {
+     final Widget child;
+     final FlUpdaterDialogBuilder? dialogBuilder;
+     final String? title;
+     final String? message;
+     final String? updateButtonText;
+     final String? laterButtonText;
+     final FlUpdaterDialogStyle? style;
+     final Duration snoozeDuration;
+   }
+   ```
+
+   - Placed via `MaterialApp.builder` so it always has a `BuildContext` under a `Navigator` to call `showDialog()` with.
+   - `initState()` triggers `checkForUpdate()` exactly once (no `WidgetsBindingObserver`, no resume-recheck). When the result is `soft` or `force`, the dialog is shown via a post-frame callback (`WidgetsBinding.instance.addPostFrameCallback`) so it never tries to show mid-build.
+   - Built on top of the imperative API below — it is a convenience layer, not a separate code path.
+
+6. **Store launcher** (platform channel — replaces the current `openAppStore` / `openGooglePlayStore` stubs)
    - Android (Kotlin): opens `market://details?id=<package>` via an explicit `Intent` targeting the Play Store app; if that fails (`ActivityNotFoundException`, Play Store app not installed), falls back to `https://play.google.com/store/apps/details?id=<package>` via `ACTION_VIEW`.
    - iOS (Swift): opens `itms-apps://itunes.apple.com/app/id<appId>` via `UIApplication.shared.open(...)`; if `canOpenURL` returns false, falls back to `https://apps.apple.com/app/id<appId>`.
    - Package/app id defaults to the host app's own identifiers, overridable via Remote Config keys.
 
 ## Public Dart API
 
-Replaces the empty `FlUpdater` class in `lib/fl_updater.dart`:
+Replaces the empty `FlUpdater` class in `lib/fl_updater.dart`. Both the wrapper and this imperative API are supported; the wrapper is built on top of it.
 
 ```dart
 class FlUpdater {
-  Future<UpdateInfo> checkForUpdate();
+  Future<UpdateInfo> checkForUpdate({Duration snoozeDuration = const Duration(days: 3)});
 
   Future<void> showUpdateDialog(
     BuildContext context, {
     UpdateInfo? info, // if omitted, calls checkForUpdate() internally
+    FlUpdaterDialogBuilder? dialogBuilder,
     String? title,
     String? message,
     String? updateButtonText,
     String? laterButtonText,
+    FlUpdaterDialogStyle? style,
+    Duration snoozeDuration = const Duration(days: 3),
   });
 }
 ```
@@ -105,9 +152,10 @@ All keys have safe defaults (`fl_updater_min_version` defaults to `"0.0.0"`, i.e
 - **Unit tests** (`test/`):
   - `VersionComparator`: equal versions, patch/minor/major differences, malformed version strings, boundary at exactly `min_version`.
   - `UpdateInfo`: parsing from raw Remote Config value maps, `==`/`hashCode` contract.
+  - `FlUpdaterSnoozeStore`: snooze then immediately re-check (still snoozed), snooze then simulate elapsed time (no longer snoozed), snooze one version then check a newer version (not snoozed), using mocked `shared_preferences`.
   - `MethodChannelFlUpdater`: mocked `MethodChannel` verifying correct method names/arguments are sent for store-opening calls (existing pattern in the scaffold's `test/` dir).
 - **Manual verification** in `example/`:
-  - Android emulator: trigger soft and force update states, confirm dialog behavior (dismissible vs. blocked, back button behavior) and that tapping "Update" opens the Play Store app (or browser fallback).
+  - Android emulator: trigger soft and force update states, confirm dialog behavior (dismissible vs. blocked, back button behavior), confirm "Later" snoozes and the dialog doesn't reappear on next launch until the snooze expires, and that tapping "Update" opens the Play Store app (or browser fallback).
   - iOS simulator: same, confirming App Store app opens (or Safari fallback).
 
 ## Files touched
@@ -117,10 +165,12 @@ All keys have safe defaults (`fl_updater_min_version` defaults to `"0.0.0"`, i.e
 - `lib/src/fl_updater_method_channel.dart` — already wired; verify method names match native side
 - `lib/src/remote_config_service.dart` — new
 - `lib/src/version_comparator.dart` — new
-- `lib/src/update_dialog.dart` — new
+- `lib/src/snooze_store.dart` — new
+- `lib/src/update_dialog.dart` — new (`FlUpdaterDialog`, `FlUpdaterDialogStyle`, `FlUpdaterDialogBuilder` typedef)
+- `lib/src/update_wrapper.dart` — new (`FlUpdaterWrapper`)
 - `lib/src/models/update_info.model.dart` — replaces broken `remote_config.model.dart`
 - `android/src/main/kotlin/com/kishormainali/fl_updater/FlUpdaterPlugin.kt` — implement store-opening intents
 - `ios/fl_updater/Sources/fl_updater/FlUpdaterPlugin.swift` — implement store-opening URL handling
-- `pubspec.yaml` — add `package_info_plus` dependency (already has `firebase_remote_config`)
-- `example/lib/main.dart` — demo usage
+- `pubspec.yaml` — add `package_info_plus` and `shared_preferences` dependencies (already has `firebase_remote_config`)
+- `example/lib/main.dart` — demo usage of both the wrapper and the imperative API
 - `test/` — unit tests as described above
