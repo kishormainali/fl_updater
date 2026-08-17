@@ -21,11 +21,14 @@ The goal is to turn this into a working plugin that:
 - No `url_launcher` dependency — store opening is implemented directly via native platform channel code.
 - No analytics/telemetry hooks in v1.
 - No lifecycle-based (app-resume) rechecking in v1 — the wrapper checks once per cold start only.
+- No cost/usage telemetry or budget enforcement — the plugin only exposes `minimumFetchInterval` as a lever; tracking actual Remote Config spend is out of scope.
 
 ## Architecture
 
 1. **Remote Config service** (`lib/src/remote_config_service.dart`)
-   Wraps `firebase_remote_config`: sets defaults, calls `fetchAndActivate()`, reads the flat keys described below, and produces an `UpdateInfo`.
+   Wraps `firebase_remote_config`: sets defaults, applies a `minimumFetchInterval` via `setConfigSettings` before calling `fetchAndActivate()`, reads the flat keys described below, and produces an `UpdateInfo`.
+
+   Firebase has announced usage-based pricing for Remote Config taking effect 2026-09-01, i.e. fetches will factor into cost, not just be free/unlimited as before. Since `FlUpdaterWrapper` already checks only once per cold start (no polling), the main remaining lever is the SDK's own fetch cache: `fetchAndActivate()` serves cached values instead of hitting the network when called again within `minimumFetchInterval`. The service sets this explicitly — default `Duration(hours: 12)`, matching the Firebase SDK's own default — instead of leaving it implicit, and exposes it as a parameter (`FlUpdater`/`FlUpdaterWrapper`) so a host app can widen it (e.g. `Duration(days: 1)`) to further cut fetch volume, or narrow it if they need faster propagation and accept the cost.
 
 2. **Version comparison** (`lib/src/version_comparator.dart`)
    Uses `package_info_plus` to get the installed version, and compares it against `latest_version` / `min_version` from Remote Config using semantic-version rules. Produces an `UpdateStatus` enum: `none`, `soft` (update available, dismissible), `force` (installed version is below `min_version`, blocking).
@@ -75,6 +78,7 @@ The goal is to turn this into a working plugin that:
      final String? laterButtonText;
      final FlUpdaterDialogStyle? style;
      final Duration snoozeDuration;
+     final Duration minimumFetchInterval;
    }
    ```
 
@@ -97,6 +101,7 @@ Replaces the empty `FlUpdater` class in `lib/fl_updater.dart`. Both the wrapper 
 class FlUpdater {
   Future<UpdateInfo> checkForUpdate({
     Duration snoozeDuration = const Duration(days: 3),
+    Duration minimumFetchInterval = const Duration(hours: 12),
     String? iosAppId,
     String? androidPackageId,
   });
@@ -113,6 +118,7 @@ class FlUpdater {
     String? laterButtonText,
     FlUpdaterDialogStyle? style,
     Duration snoozeDuration = const Duration(days: 3),
+    Duration minimumFetchInterval = const Duration(hours: 12),
   });
 }
 ```
