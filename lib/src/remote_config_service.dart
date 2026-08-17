@@ -42,10 +42,10 @@ class RemoteConfigService {
       );
     }
 
-    final packageInfo = await PackageInfo.fromPlatform();
-    final currentVersion = packageInfo.version;
-
     try {
+      final packageInfo = await PackageInfo.fromPlatform();
+      final currentVersion = packageInfo.version;
+
       await _remoteConfig.setConfigSettings(
         RemoteConfigSettings(
           fetchTimeout: const Duration(minutes: 1),
@@ -72,8 +72,8 @@ class RemoteConfigService {
     } catch (error, stackTrace) {
       debugPrint('fl_updater: failed to fetch remote config: $error\n$stackTrace');
       return UpdateInfo(
-        currentVersion: currentVersion,
-        latestVersion: currentVersion,
+        currentVersion: '',
+        latestVersion: '',
         status: UpdateStatus.none,
         iosAppId: iosAppId,
         androidPackageId: androidPackageId,
