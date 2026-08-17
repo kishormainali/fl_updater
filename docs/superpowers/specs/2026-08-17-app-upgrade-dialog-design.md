@@ -66,6 +66,8 @@ The goal is to turn this into a working plugin that:
    ```dart
    class FlUpdaterWrapper extends StatefulWidget {
      final Widget child;
+     final String? iosAppId;
+     final String? androidPackageId;
      final FlUpdaterDialogBuilder? dialogBuilder;
      final String? title;
      final String? message;
@@ -76,6 +78,8 @@ The goal is to turn this into a working plugin that:
    }
    ```
 
+   `iosAppId`/`androidPackageId` are plain Dart-side configuration passed by the host app — not Remote Config values (see schema below) — so they're available synchronously without waiting on a fetch.
+
    - Placed via `MaterialApp.builder` so it always has a `BuildContext` under a `Navigator` to call `showDialog()` with.
    - `initState()` triggers `checkForUpdate()` exactly once (no `WidgetsBindingObserver`, no resume-recheck). When the result is `soft` or `force`, the dialog is shown via a post-frame callback (`WidgetsBinding.instance.addPostFrameCallback`) so it never tries to show mid-build.
    - Built on top of the imperative API below — it is a convenience layer, not a separate code path.
@@ -83,7 +87,7 @@ The goal is to turn this into a working plugin that:
 6. **Store launcher** (platform channel — replaces the current `openAppStore` / `openGooglePlayStore` stubs)
    - Android (Kotlin): opens `market://details?id=<package>` via an explicit `Intent` targeting the Play Store app; if that fails (`ActivityNotFoundException`, Play Store app not installed), falls back to `https://play.google.com/store/apps/details?id=<package>` via `ACTION_VIEW`.
    - iOS (Swift): opens `itms-apps://itunes.apple.com/app/id<appId>` via `UIApplication.shared.open(...)`; if `canOpenURL` returns false, falls back to `https://apps.apple.com/app/id<appId>`.
-   - Package/app id defaults to the host app's own identifiers, overridable via Remote Config keys.
+   - `androidPackageId` defaults to the host app's own package name (read on-device) when not passed by the host app; `iosAppId` has no on-device fallback and must be passed by the host app or the store won't open.
 
 ## Public Dart API
 
@@ -91,11 +95,17 @@ Replaces the empty `FlUpdater` class in `lib/fl_updater.dart`. Both the wrapper 
 
 ```dart
 class FlUpdater {
-  Future<UpdateInfo> checkForUpdate({Duration snoozeDuration = const Duration(days: 3)});
+  Future<UpdateInfo> checkForUpdate({
+    Duration snoozeDuration = const Duration(days: 3),
+    String? iosAppId,
+    String? androidPackageId,
+  });
 
   Future<void> showUpdateDialog(
     BuildContext context, {
     UpdateInfo? info, // if omitted, calls checkForUpdate() internally
+    String? iosAppId,
+    String? androidPackageId,
     FlUpdaterDialogBuilder? dialogBuilder,
     String? title,
     String? message,
@@ -121,7 +131,14 @@ class UpdateInfo {
 
   const UpdateInfo({...});
 
-  factory UpdateInfo.fromRemoteConfigValues(...);
+  // iosAppId/androidPackageId come from the caller (FlUpdater /
+  // FlUpdaterWrapper), not from `values` — see Remote Config schema below.
+  factory UpdateInfo.fromRemoteConfigValues({
+    required Map<String, String> values,
+    required String currentVersion,
+    String? iosAppId,
+    String? androidPackageId,
+  });
 
   @override
   int get hashCode => ...;
@@ -136,10 +153,10 @@ class UpdateInfo {
 
 - `fl_updater_latest_version` (string, e.g. `"2.3.0"`)
 - `fl_updater_min_version` (string) — installed version below this ⇒ `UpdateStatus.force`
-- `fl_updater_ios_app_id` (string, numeric App Store id)
-- `fl_updater_android_package_id` (string, optional — defaults to the host app's own package name if unset)
 
-All keys have safe defaults (`fl_updater_min_version` defaults to `"0.0.0"`, i.e. force update never triggers unless explicitly configured) so an app that hasn't configured Remote Config yet never breaks.
+Both keys have safe defaults (`fl_updater_min_version` defaults to `"0.0.0"`, i.e. force update never triggers unless explicitly configured) so an app that hasn't configured Remote Config yet never breaks.
+
+**`iosAppId` / `androidPackageId` are not Remote Config values.** They're static per-app identifiers (an App Store id, an optional package-name override) that don't need a dashboard toggle, so they're passed as plain Dart parameters on `FlUpdaterWrapper` / `FlUpdater.checkForUpdate` / `FlUpdater.showUpdateDialog` instead — one less network round-trip in the way of them being available, and one less thing to misconfigure in the Firebase console.
 
 ## Error handling
 
@@ -151,7 +168,7 @@ All keys have safe defaults (`fl_updater_min_version` defaults to `"0.0.0"`, i.e
 
 - **Unit tests** (`test/`):
   - `VersionComparator`: equal versions, patch/minor/major differences, malformed version strings, boundary at exactly `min_version`.
-  - `UpdateInfo`: parsing from raw Remote Config value maps, `==`/`hashCode` contract.
+  - `UpdateInfo`: parsing from raw Remote Config value maps (`fl_updater_latest_version`/`fl_updater_min_version` only), passthrough of caller-supplied `iosAppId`/`androidPackageId`, `==`/`hashCode` contract.
   - `FlUpdaterSnoozeStore`: snooze then immediately re-check (still snoozed), snooze then simulate elapsed time (no longer snoozed), snooze one version then check a newer version (not snoozed), using mocked `shared_preferences`.
   - `MethodChannelFlUpdater`: mocked `MethodChannel` verifying correct method names/arguments are sent for store-opening calls (existing pattern in the scaffold's `test/` dir).
 - **Manual verification** in `example/`:
