@@ -23,7 +23,7 @@
 - No lifecycle-based (app-resume) rechecking — `FlUpdaterWrapper` checks exactly once per cold start.
 - Default `minimumFetchInterval` is `Duration(hours: 12)` (matches the Firebase SDK's own default), set explicitly via `setConfigSettings` before every `fetchAndActivate()` — Remote Config's usage-based pricing (effective 2026-09-01) makes fetch volume a real cost, not just a nice-to-have to minimize.
 - `checkForUpdate()` skips the fetch entirely under `kDebugMode` (returns `UpdateStatus.none`, no platform channel touched) unless `enableInDebugMode: true` is passed — avoids a fetch (and a surprise dialog) on every debug hot restart.
-- Android store URI: `market://details?id=<package>`, fallback `https://play.google.com/store/apps/details?id=<package>`.
+- Android: triggers Google Play's In-App Update API (`AppUpdateManager`, `AppUpdateType.IMMEDIATE`) via `startUpdateFlowForResult`, requiring the plugin to be `ActivityAware`; falls back to `https://play.google.com/store/apps/details?id=<package>` if the native flow isn't available. (Changed mid-plan from a `market://` URI intent — see Task 5's ruling.)
 - iOS: presents the App Store page in-app via StoreKit's `SKStoreProductViewController` (`SKStoreProductParameterITunesItemIdentifier: appId`), not a URL scheme; falls back to `https://apps.apple.com/app/id<appId>` only if StoreKit fails to load the product. (Changed mid-plan from an `itms-apps://` URL scheme — see Task 6's ruling.)
 - Method channel name (must match across Dart/Android/iOS): `com.kishormainali.fl_updater`.
 
@@ -682,24 +682,49 @@ git commit -m "feat: replace store stubs with unified openStore method channel"
 
 **Files:**
 - Modify: `android/src/main/kotlin/com/kishormainali/fl_updater/FlUpdaterPlugin.kt` (rewrite)
+- Modify: `android/build.gradle.kts` (add the Play Core `app-update` dependency)
 - Delete: `android/src/test/kotlin/com/kishormainali/fl_updater/FlUpdaterPluginTest.kt` (tests the removed `getPlatformVersion` behavior)
 
 **Interfaces:**
 - Consumes: method channel `com.kishormainali.fl_updater`, method `openStore` with args `androidPackageId` (nullable String) from Task 4.
 
-**Decision:** No automated Android unit test is added — testing `openStore` correctly requires mocking `Context`/`PackageManager` for an `Intent`-launch, which the spec's testing section does not call for. Correctness is verified manually by running the example app on an Android emulator (Task 12).
+**Decision:** No automated Android unit test is added — testing `openStore` correctly requires mocking `Context`/`Activity`/Play Core's `AppUpdateManager`, which the spec's testing section does not call for. Correctness is verified manually by running the example app on an Android emulator/device (Task 12) — the In-App Update flow specifically needs a real device or emulator with Play Store services and an app actually installed via a Play track (internal testing track is sufficient) to exercise the primary path at all; without that, the fallback path is what'll be observed, which is still worth confirming.
 
-- [ ] **Step 1: Rewrite the plugin**
+**Ruling (mid-plan course correction):** the controller was instructed mid-execution to use Google Play's In-App Update API instead of a `market://` URI intent. This task was already implemented and reviewed once with the URI-intent approach before the instruction arrived; this rewrite supersedes that implementation, following the same course-correction pattern used for Task 6's StoreKit switch. Google Play's In-App Update API (`AppUpdateManager`, from `com.google.android.play:app-update`) requires an `Activity` to call `startUpdateFlowForResult` — a plain application `Context` (which is all the previous implementation needed) isn't enough — so the plugin now implements `ActivityAware` to track the currently-attached activity across its lifecycle. Per explicit confirmation, the update type is `AppUpdateType.IMMEDIATE` (a full-screen blocking native Play UI) rather than `FLEXIBLE`, since by the time `openStore` is called the user has already tapped "Update" in `fl_updater`'s own dialog — a blocking native flow matches that intent, and it naturally fits the force-update case's "no way out but updating" semantics too. `androidPackageId` is not passed to Play Core at all (the API only ever operates on the currently-running app's own installation) — it's used solely to build the fallback URL, exactly as before.
+
+- [ ] **Step 1: Add the Play Core dependency**
+
+In `android/build.gradle.kts`, add the dependency to the existing `dependencies { }` block (do not create a second block):
+
+```kotlin
+dependencies {
+    implementation("com.google.android.play:app-update:2.1.0")
+    testImplementation("org.jetbrains.kotlin:kotlin-test")
+    testImplementation("org.mockito:mockito-core:5.0.0")
+}
+```
+
+If `2.1.0` fails to resolve at build time (Google's Maven repository may have published a newer version since this plan was written), bump to the latest available `com.google.android.play:app-update` release — the API surface used here (`AppUpdateManagerFactory`, `AppUpdateManager`, `AppUpdateType`, `AppUpdateOptions`, `UpdateAvailability`) has been stable across that artifact's `2.x` line.
+
+- [ ] **Step 2: Rewrite the plugin**
 
 ```kotlin
 // android/src/main/kotlin/com/kishormainali/fl_updater/FlUpdaterPlugin.kt
 package com.kishormainali.fl_updater
 
+import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import com.google.android.play.core.appupdate.AppUpdateManager
+import com.google.android.play.core.appupdate.AppUpdateManagerFactory
+import com.google.android.play.core.appupdate.AppUpdateOptions
+import com.google.android.play.core.install.model.AppUpdateType
+import com.google.android.play.core.install.model.UpdateAvailability
 import io.flutter.embedding.engine.plugins.FlutterPlugin
+import io.flutter.embedding.engine.plugins.activity.ActivityAware
+import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
@@ -707,14 +732,37 @@ import io.flutter.plugin.common.MethodChannel.Result
 
 class FlUpdaterPlugin :
     FlutterPlugin,
+    ActivityAware,
     MethodCallHandler {
     private lateinit var channel: MethodChannel
     private lateinit var context: Context
+    private var activity: Activity? = null
+    private var appUpdateManager: AppUpdateManager? = null
 
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         channel = MethodChannel(flutterPluginBinding.binaryMessenger, "com.kishormainali.fl_updater")
         channel.setMethodCallHandler(this)
         context = flutterPluginBinding.applicationContext
+    }
+
+    override fun onAttachedToActivity(binding: ActivityPluginBinding) {
+        activity = binding.activity
+        appUpdateManager = AppUpdateManagerFactory.create(binding.activity)
+    }
+
+    override fun onDetachedFromActivityForConfigChanges() {
+        activity = null
+        appUpdateManager = null
+    }
+
+    override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
+        activity = binding.activity
+        appUpdateManager = AppUpdateManagerFactory.create(binding.activity)
+    }
+
+    override fun onDetachedFromActivity() {
+        activity = null
+        appUpdateManager = null
     }
 
     override fun onMethodCall(
@@ -724,46 +772,83 @@ class FlUpdaterPlugin :
         if (call.method == "openStore") {
             val packageId = call.argument<String>("androidPackageId")?.takeIf { it.isNotEmpty() }
                 ?: context.packageName
-            openStore(packageId)
-            result.success(null)
+            openStore(packageId, result)
         } else {
             result.notImplemented()
         }
     }
 
-    private fun openStore(packageId: String) {
+    private fun openStore(packageId: String, result: Result) {
+        val manager = appUpdateManager
+        val currentActivity = activity
+        if (manager == null || currentActivity == null) {
+            openWebFallback(packageId, result)
+            return
+        }
+
+        manager.appUpdateInfo
+            .addOnSuccessListener { info ->
+                val canUpdateImmediately =
+                    info.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE &&
+                        info.isUpdateTypeAllowed(AppUpdateType.IMMEDIATE)
+                if (canUpdateImmediately) {
+                    try {
+                        manager.startUpdateFlowForResult(
+                            info,
+                            currentActivity,
+                            AppUpdateOptions.newBuilder(AppUpdateType.IMMEDIATE).build(),
+                            REQUEST_CODE_IMMEDIATE_UPDATE,
+                        )
+                        result.success(null)
+                    } catch (e: Exception) {
+                        openWebFallback(packageId, result)
+                    }
+                } else {
+                    openWebFallback(packageId, result)
+                }
+            }
+            .addOnFailureListener {
+                openWebFallback(packageId, result)
+            }
+    }
+
+    private fun openWebFallback(packageId: String, result: Result) {
         try {
-            val marketIntent = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$packageId"))
-            marketIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(marketIntent)
-        } catch (e: ActivityNotFoundException) {
             val webIntent = Intent(
                 Intent.ACTION_VIEW,
                 Uri.parse("https://play.google.com/store/apps/details?id=$packageId"),
             )
             webIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(webIntent)
+            result.success(null)
+        } catch (e: ActivityNotFoundException) {
+            result.error("CANNOT_OPEN", "Could not open Play Store", null)
         }
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         channel.setMethodCallHandler(null)
     }
+
+    companion object {
+        private const val REQUEST_CODE_IMMEDIATE_UPDATE = 20255
+    }
 }
 ```
 
-- [ ] **Step 2: Delete the stale native test**
+- [ ] **Step 3: Delete the stale native test**
 
 ```bash
 rm android/src/test/kotlin/com/kishormainali/fl_updater/FlUpdaterPluginTest.kt
 ```
 
-- [ ] **Step 3: Commit**
+(Skip this step if Task 5 already ran once before this course correction and the file is already deleted — check `ls android/src/test/kotlin/com/kishormainali/fl_updater/` first.)
+
+- [ ] **Step 4: Commit**
 
 ```bash
-git add android/src/main/kotlin/com/kishormainali/fl_updater/FlUpdaterPlugin.kt
-git rm android/src/test/kotlin/com/kishormainali/fl_updater/FlUpdaterPluginTest.kt
-git commit -m "feat: implement Android store-opening via market intent"
+git add android/src/main/kotlin/com/kishormainali/fl_updater/FlUpdaterPlugin.kt android/build.gradle.kts
+git commit -m "feat: implement Android store-opening via Play Core In-App Update API"
 ```
 
 ---
@@ -987,10 +1072,10 @@ class RemoteConfigService {
       );
     }
 
-    final packageInfo = await PackageInfo.fromPlatform();
-    final currentVersion = packageInfo.version;
-
     try {
+      final packageInfo = await PackageInfo.fromPlatform();
+      final currentVersion = packageInfo.version;
+
       await _remoteConfig.setConfigSettings(
         RemoteConfigSettings(
           fetchTimeout: const Duration(minutes: 1),
@@ -1017,8 +1102,8 @@ class RemoteConfigService {
     } catch (error, stackTrace) {
       debugPrint('fl_updater: failed to fetch remote config: $error\n$stackTrace');
       return UpdateInfo(
-        currentVersion: currentVersion,
-        latestVersion: currentVersion,
+        currentVersion: '',
+        latestVersion: '',
         status: UpdateStatus.none,
         iosAppId: iosAppId,
         androidPackageId: androidPackageId,
