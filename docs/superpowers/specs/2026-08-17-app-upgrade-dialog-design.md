@@ -93,7 +93,7 @@ The goal is to turn this into a working plugin that:
 
 6. **Store launcher** (platform channel — replaces the current `openAppStore` / `openGooglePlayStore` stubs)
    - Android (Kotlin): opens `market://details?id=<package>` via an explicit `Intent` targeting the Play Store app; if that fails (`ActivityNotFoundException`, Play Store app not installed), falls back to `https://play.google.com/store/apps/details?id=<package>` via `ACTION_VIEW`.
-   - iOS (Swift): opens `itms-apps://itunes.apple.com/app/id<appId>` via `UIApplication.shared.open(...)`; if `canOpenURL` returns false, falls back to `https://apps.apple.com/app/id<appId>`.
+   - iOS (Swift): presents the App Store product page in-app via StoreKit's `SKStoreProductViewController`, loaded with `SKStoreProductParameterITunesItemIdentifier: appId` and presented from the app's root view controller — the user never leaves the app. If StoreKit fails to load the product (no root view controller found, network error, invalid id), falls back to opening `https://apps.apple.com/app/id<appId>` via `UIApplication.shared.open(...)` as a last resort so the user isn't left stuck.
    - `androidPackageId` defaults to the host app's own package name (read on-device) when not passed by the host app; `iosAppId` has no on-device fallback and must be passed by the host app or the store won't open.
 
 ## Public Dart API
