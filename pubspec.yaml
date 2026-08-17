@@ -1,5 +1,5 @@
 name: fl_updater
-description: "A new Flutter plugin project."
+description: "Firebase Remote Config-driven app update dialog with automatic wrapper, snoozable soft updates, and native App/Play Store opening."
 version: 0.0.1
 homepage:
 
