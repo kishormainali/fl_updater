@@ -33,7 +33,11 @@ Future<void> presentUpdateDialog(
   }
 
   Future<void> onLater() async {
-    await snoozeStore.snooze(info.latestVersion, snoozeDuration);
+    try {
+      await snoozeStore.snooze(info.latestVersion, snoozeDuration);
+    } catch (error) {
+      debugPrint('fl_updater: failed to record snooze: $error');
+    }
     if (context.mounted) {
       Navigator.of(context, rootNavigator: true).pop();
     }

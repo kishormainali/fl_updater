@@ -11,17 +11,18 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fl_updater_example/main.dart';
 
 void main() {
-  testWidgets('Verify Platform version', (WidgetTester tester) async {
+  testWidgets('renders the app bar title and check-for-update button', (WidgetTester tester) async {
     // Build our app and trigger a frame.
     await tester.pumpWidget(const MyApp());
+    await tester.pumpAndSettle();
 
-    // Verify that platform version is retrieved.
-    expect(
-      find.byWidgetPredicate(
-        (Widget widget) =>
-            widget is Text && widget.data!.startsWith('Running on:'),
-      ),
-      findsOneWidget,
-    );
+    // Verify the AppBar title and the manual-check button are present.
+    // MyApp's FlUpdaterWrapper has enableInDebugMode: true, so this also
+    // exercises the real RemoteConfigService.checkForUpdate() path — it
+    // fails open (PackageInfo.fromPlatform()/FirebaseRemoteConfig.instance
+    // throw with no test mocks registered) and completes safely with no
+    // dialog shown.
+    expect(find.text('fl_updater example'), findsOneWidget);
+    expect(find.widgetWithText(ElevatedButton, 'Check for update'), findsOneWidget);
   });
 }
