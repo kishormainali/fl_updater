@@ -1,17 +1,32 @@
 # fl_updater_example
 
-Demonstrates how to use the fl_updater plugin.
+Demonstrates how to integrate and use the `fl_updater` package in a Flutter application.
+
+## Features Demonstrated
+
+1. **Automatic Launch Check**: Wrapping `MaterialApp` with `FlUpdaterWrapper` to check Remote Config on application launch.
+2. **Imperative Update Check**: Triggering update checks manually using `FlUpdater().checkForUpdate()`.
+3. **Custom Dialog Styling**: Applying theme colors, custom icons, and typography using `FlUpdaterDialogStyle`.
+4. **Custom Dialog Builder**: Building bespoke update UI using `dialogBuilder` (`FlUpdaterDialogBuilder`).
 
 ## Getting Started
 
-This project is a starting point for a Flutter application.
+### 1. Configure Firebase (Optional for testing)
 
-A few resources to get you started if this is your first Flutter project:
+The example app is configured to fail open gracefully if Firebase is not connected. To test with real Remote Config values:
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+1. Create a Firebase project in the [Firebase Console](https://console.firebase.google.com/).
+2. Run the FlutterFire CLI from this `example` directory:
+   ```bash
+   flutterfire configure
+   ```
+3. Add the following Remote Config keys:
+   - `fl_updater_latest_version`: e.g. `"2.0.0"`
+   - `fl_updater_min_version`: e.g. `"1.5.0"` (or leave empty for soft updates)
+4. Publish changes in the Firebase Remote Config console.
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+### 2. Run the Example
+
+```bash
+flutter run
+```

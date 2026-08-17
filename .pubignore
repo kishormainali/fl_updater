@@ -1,0 +1,25 @@
+# Development and internal docs
+.superpowers/
+docs/
+.github/
+
+# IDE and tooling
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# Test coverage and documentation build
+coverage/
+doc/api/
+
+# Build artifacts & caches
+build/
+**/build/
+.dart_tool/
+**/.dart_tool/
+.flutter-plugins-dependencies
+.flutter-plugins
+*.lock
+**/*.lock

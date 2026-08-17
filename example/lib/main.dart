@@ -7,36 +7,36 @@ Future<void> main() async {
   try {
     await Firebase.initializeApp();
   } catch (error) {
-    // No Firebase project is configured for this example yet. Run
-    // `flutterfire configure` from the example/ directory to enable
-    // real Remote Config values — fl_updater fails open without it,
-    // so the app still runs, it just never finds an update.
-    debugPrint('Firebase.initializeApp failed: $error');
+    // If Firebase isn't configured yet, fl_updater fails open safely.
+    // To connect to a live Firebase project, run `flutterfire configure` inside the example/ directory.
+    debugPrint('Firebase.initializeApp notice: $error');
   }
-  runApp(const MyApp());
+  runApp(const ExampleApp());
 }
 
-// Set these to your app's real identifiers before shipping — the Play
-// Store package id and the numeric App Store id. Neither comes from
-// Remote Config; the wrapper takes them directly. Leaving androidPackageId
-// null falls back to the host app's own package name on Android; iOS has
-// no such fallback and needs a real numeric id to open the App Store.
+// Replace with your real identifiers:
+// - On iOS, the numeric App Store ID (e.g. '123456789') is required.
+// - On Android, the package ID defaults to the host application if omitted.
+const _iosAppId = '123456789';
 const _androidPackageId = 'com.kishormainali.fl_updater_example';
-const _iosAppId = '000000000';
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class ExampleApp extends StatelessWidget {
+  const ExampleApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      title: 'fl_updater Example',
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        useMaterial3: true,
+      ),
+      // FlUpdaterWrapper automatically evaluates update status on launch
       builder: (context, child) => FlUpdaterWrapper(
         iosAppId: _iosAppId,
         androidPackageId: _androidPackageId,
-        // This example app is specifically for exercising fl_updater during
-        // development, so it opts back into fetching while debugging. A real
-        // app normally leaves this false (the default) to avoid Remote
-        // Config fetches and surprise dialogs on every debug hot restart.
+        // enableInDebugMode is true here for example/testing purposes.
+        // In production apps, leave this false to avoid consuming Remote Config quota during development.
         enableInDebugMode: true,
         child: child!,
       ),
@@ -45,30 +45,180 @@ class MyApp extends StatelessWidget {
   }
 }
 
-class HomePage extends StatelessWidget {
+class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
-  Future<void> _checkManually(BuildContext context) async {
-    final updater = FlUpdater();
-    await updater.showUpdateDialog(
+  @override
+  State<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> {
+  final _updater = FlUpdater();
+  UpdateInfo? _lastCheckedInfo;
+  bool _isLoading = false;
+
+  Future<void> _checkManually() async {
+    setState(() => _isLoading = true);
+    try {
+      final info = await _updater.checkForUpdate(
+        iosAppId: _iosAppId,
+        androidPackageId: _androidPackageId,
+        enableInDebugMode: true,
+      );
+      setState(() => _lastCheckedInfo = info);
+      if (mounted) {
+        await _updater.showUpdateDialog(
+          context,
+          info: info,
+          iosAppId: _iosAppId,
+          androidPackageId: _androidPackageId,
+          enableInDebugMode: true,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _showStyledDialog() async {
+    await _updater.showUpdateDialog(
       context,
       iosAppId: _iosAppId,
       androidPackageId: _androidPackageId,
       enableInDebugMode: true,
-      style: const FlUpdaterDialogStyle(
-        titleStyle: TextStyle(fontWeight: FontWeight.bold),
+      title: '🚀 Major Update Available!',
+      message: 'A brand-new version is ready with exciting features and enhancements.',
+      updateButtonText: 'Upgrade Now',
+      laterButtonText: 'Remind Me Later',
+      style: FlUpdaterDialogStyle(
+        backgroundColor: Colors.deepPurple.shade50,
+        titleStyle: const TextStyle(
+          fontWeight: FontWeight.bold,
+          color: Colors.deepPurple,
+          fontSize: 20,
+        ),
+        messageStyle: const TextStyle(color: Colors.black87, fontSize: 14),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        icon: const Icon(Icons.rocket_launch, size: 40, color: Colors.deepPurple),
       ),
+    );
+  }
+
+  Future<void> _showCustomBuilderDialog() async {
+    await _updater.showUpdateDialog(
+      context,
+      iosAppId: _iosAppId,
+      androidPackageId: _androidPackageId,
+      enableInDebugMode: true,
+      dialogBuilder: (dialogContext, info, onUpdate, onLater) {
+        final isForce = info.status == UpdateStatus.force;
+        return AlertDialog(
+          icon: const Icon(Icons.stars, color: Colors.amber, size: 36),
+          title: Text('Custom Dialog: ${info.latestVersion}'),
+          content: Text(
+            'Current version is ${info.currentVersion}.\n\n'
+            'This dialog was rendered using a custom dialogBuilder callback.',
+          ),
+          actions: [
+            if (!isForce)
+              TextButton(
+                onPressed: onLater,
+                child: const Text('Dismiss & Snooze'),
+              ),
+            FilledButton.icon(
+              onPressed: onUpdate,
+              icon: const Icon(Icons.download),
+              label: const Text('Download Update'),
+            ),
+          ],
+        );
+      },
     );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('fl_updater example')),
-      body: Center(
-        child: ElevatedButton(
-          onPressed: () => _checkManually(context),
-          child: const Text('Check for update'),
+      appBar: AppBar(
+        title: const Text('fl_updater Example'),
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Card(
+              elevation: 0,
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              child: const Padding(
+                padding: EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Firebase Remote Config Integration',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    ),
+                    SizedBox(height: 8),
+                    Text(
+                      'Set the following keys in your Firebase Remote Config Console:\n'
+                      '• fl_updater_latest_version (e.g. "2.0.0")\n'
+                      '• fl_updater_min_version (e.g. "1.5.0")',
+                      style: TextStyle(fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            if (_lastCheckedInfo != null) ...[
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Last Evaluation Result',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      const Divider(),
+                      Text('Current Version: ${_lastCheckedInfo!.currentVersion}'),
+                      Text('Latest Version: ${_lastCheckedInfo!.latestVersion}'),
+                      Text('Status: ${_lastCheckedInfo!.status.name}'),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+            ],
+            FilledButton.icon(
+              onPressed: _isLoading ? null : _checkManually,
+              icon: _isLoading
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.refresh),
+              label: const Text('Check for Update (Default Dialog)'),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: _showStyledDialog,
+              icon: const Icon(Icons.palette),
+              label: const Text('Show Styled Dialog Demo'),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: _showCustomBuilderDialog,
+              icon: const Icon(Icons.dashboard_customize),
+              label: const Text('Show Custom Builder Dialog Demo'),
+            ),
+          ],
         ),
       ),
     );
