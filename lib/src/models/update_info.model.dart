@@ -1,5 +1,5 @@
 import 'update_status.dart';
-import '../version_comparator.dart';
+import '../utils/version_comparator.dart';
 
 class UpdateInfo {
   const UpdateInfo({

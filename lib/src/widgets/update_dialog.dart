@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import 'models/update_info.model.dart';
-import 'models/update_status.dart';
+import '../models/update_info.model.dart';
+import '../models/update_status.dart';
 
 typedef FlUpdaterDialogBuilder = Widget Function(
   BuildContext context,

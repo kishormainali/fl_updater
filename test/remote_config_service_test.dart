@@ -4,8 +4,8 @@ import 'package:mocktail/mocktail.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fl_updater/src/models/update_status.dart';
-import 'package:fl_updater/src/remote_config_service.dart';
-import 'package:fl_updater/src/snooze_store.dart';
+import 'package:fl_updater/src/services/remote_config_service.dart';
+import 'package:fl_updater/src/services/snooze_store.dart';
 
 class MockFirebaseRemoteConfig extends Mock implements FirebaseRemoteConfig {}
 

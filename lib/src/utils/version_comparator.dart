@@ -1,4 +1,4 @@
-import 'models/update_status.dart';
+import '../models/update_status.dart';
 
 class VersionComparator {
   const VersionComparator._();

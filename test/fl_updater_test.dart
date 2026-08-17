@@ -3,9 +3,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:fl_updater/fl_updater.dart';
-import 'package:fl_updater/src/fl_updater_platform_interface.dart';
-import 'package:fl_updater/src/fl_updater_method_channel.dart';
-import 'package:fl_updater/src/snooze_store.dart';
+import 'package:fl_updater/src/services/fl_updater_platform_interface.dart';
+import 'package:fl_updater/src/services/fl_updater_method_channel.dart';
+import 'package:fl_updater/src/services/snooze_store.dart';
 
 class MockFlUpdaterPlatform with MockPlatformInterfaceMixin implements FlUpdaterPlatform {
   String? lastIosAppId;

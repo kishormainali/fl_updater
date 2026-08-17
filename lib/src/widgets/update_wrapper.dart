@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../services/remote_config_service.dart';
+import '../services/snooze_store.dart';
 import 'dialog_presenter.dart';
-import 'remote_config_service.dart';
-import 'snooze_store.dart';
 import 'update_dialog.dart';
 
 class FlUpdaterWrapper extends StatefulWidget {

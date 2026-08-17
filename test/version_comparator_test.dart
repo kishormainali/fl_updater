@@ -1,7 +1,7 @@
 // test/version_comparator_test.dart
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fl_updater/src/models/update_status.dart';
-import 'package:fl_updater/src/version_comparator.dart';
+import 'package:fl_updater/src/utils/version_comparator.dart';
 
 void main() {
   group('VersionComparator.compare', () {

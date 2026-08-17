@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import 'fl_updater_platform_interface.dart';
-import 'models/update_info.model.dart';
-import 'models/update_status.dart';
-import 'snooze_store.dart';
+import '../models/update_info.model.dart';
+import '../models/update_status.dart';
+import '../services/fl_updater_platform_interface.dart';
+import '../services/snooze_store.dart';
 import 'update_dialog.dart';
 
 Future<void> presentUpdateDialog(

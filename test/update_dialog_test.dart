@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fl_updater/src/models/update_info.model.dart';
 import 'package:fl_updater/src/models/update_status.dart';
-import 'package:fl_updater/src/update_dialog.dart';
+import 'package:fl_updater/src/widgets/update_dialog.dart';
 
 void main() {
   const softInfo = UpdateInfo(

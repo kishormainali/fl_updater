@@ -1,6 +1,6 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:fl_updater/src/fl_updater_method_channel.dart';
+import 'package:fl_updater/src/services/fl_updater_method_channel.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

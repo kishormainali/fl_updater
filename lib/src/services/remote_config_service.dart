@@ -2,8 +2,8 @@ import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:flutter/foundation.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
-import 'models/update_info.model.dart';
-import 'models/update_status.dart';
+import '../models/update_info.model.dart';
+import '../models/update_status.dart';
 import 'snooze_store.dart';
 
 class RemoteConfigService {

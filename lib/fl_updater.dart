@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 
-import 'src/dialog_presenter.dart';
 import 'src/models/update_info.model.dart';
-import 'src/remote_config_service.dart';
-import 'src/snooze_store.dart';
-import 'src/update_dialog.dart';
+import 'src/services/remote_config_service.dart';
+import 'src/services/snooze_store.dart';
+import 'src/widgets/dialog_presenter.dart';
+import 'src/widgets/update_dialog.dart';
 
 export 'src/models/update_info.model.dart';
 export 'src/models/update_status.dart';
-export 'src/update_dialog.dart' show FlUpdaterDialog, FlUpdaterDialogBuilder, FlUpdaterDialogStyle;
-export 'src/update_wrapper.dart';
+export 'src/widgets/update_dialog.dart' show FlUpdaterDialog, FlUpdaterDialogBuilder, FlUpdaterDialogStyle;
+export 'src/widgets/update_wrapper.dart';
 
 class FlUpdater {
   FlUpdater({RemoteConfigService? remoteConfigService, FlUpdaterSnoozeStore? snoozeStore})
