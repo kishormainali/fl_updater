@@ -16,6 +16,7 @@ A new Flutter plugin project.
   s.source_files = 'fl_updater/Sources/fl_updater/**/*'
   s.dependency 'Flutter'
   s.platform = :ios, '15.0'
+  s.frameworks = 'StoreKit'
 
   # Flutter.framework does not contain a i386 slice.
   s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES', 'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386' }

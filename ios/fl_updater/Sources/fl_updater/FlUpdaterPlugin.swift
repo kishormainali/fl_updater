@@ -1,7 +1,8 @@
 import Flutter
 import UIKit
+import StoreKit
 
-public class FlUpdaterPlugin: NSObject, FlutterPlugin {
+public class FlUpdaterPlugin: NSObject, FlutterPlugin, SKStoreProductViewControllerDelegate {
   public static func register(with registrar: FlutterPluginRegistrar) {
     let channel = FlutterMethodChannel(name: "com.kishormainali.fl_updater", binaryMessenger: registrar.messenger())
     let instance = FlUpdaterPlugin()
@@ -25,17 +26,48 @@ public class FlUpdaterPlugin: NSObject, FlutterPlugin {
       return
     }
 
-    guard let storeUrl = URL(string: "itms-apps://itunes.apple.com/app/id\(appId)") else {
-      result(FlutterError(code: "INVALID_URL", message: "Could not build store URL", details: nil))
+    guard let itunesId = Int(appId) else {
+      openStoreWebFallback(appId: appId, result: result)
       return
     }
 
-    if UIApplication.shared.canOpenURL(storeUrl) {
-      UIApplication.shared.open(storeUrl, options: [:]) { _ in result(nil) }
-    } else if let webUrl = URL(string: "https://apps.apple.com/app/id\(appId)") {
-      UIApplication.shared.open(webUrl, options: [:]) { _ in result(nil) }
-    } else {
-      result(FlutterError(code: "CANNOT_OPEN", message: "Could not open App Store", details: nil))
+    guard let rootViewController = UIApplication.shared.connectedScenes
+      .compactMap({ ($0 as? UIWindowScene)?.keyWindow })
+      .first(where: { $0.isKeyWindow })?.rootViewController else {
+      openStoreWebFallback(appId: appId, result: result)
+      return
     }
+
+    let storeViewController = SKStoreProductViewController()
+    storeViewController.delegate = self
+    let parameters = [SKStoreProductParameterITunesItemIdentifier: NSNumber(value: itunesId)]
+    storeViewController.loadProduct(withParameters: parameters) { [weak self] success, _ in
+      DispatchQueue.main.async {
+        if success {
+          rootViewController.present(storeViewController, animated: true)
+          result(nil)
+        } else {
+          self?.openStoreWebFallback(appId: appId, result: result)
+        }
+      }
+    }
+  }
+
+  private func openStoreWebFallback(appId: String, result: @escaping FlutterResult) {
+    guard let webUrl = URL(string: "https://apps.apple.com/app/id\(appId)") else {
+      result(FlutterError(code: "CANNOT_OPEN", message: "Could not open App Store", details: nil))
+      return
+    }
+    UIApplication.shared.open(webUrl, options: [:]) { opened in
+      if opened {
+        result(nil)
+      } else {
+        result(FlutterError(code: "CANNOT_OPEN", message: "Could not open App Store", details: nil))
+      }
+    }
+  }
+
+  public func productViewControllerDidFinish(_ viewController: SKStoreProductViewController) {
+    viewController.dismiss(animated: true, completion: nil)
   }
 }
