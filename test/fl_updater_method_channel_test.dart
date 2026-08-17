@@ -5,14 +5,17 @@ import 'package:fl_updater/src/fl_updater_method_channel.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  MethodChannelFlUpdater platform = MethodChannelFlUpdater();
-  const MethodChannel channel = MethodChannel('fl_updater');
+  final platform = MethodChannelFlUpdater();
+  const channel = MethodChannel('com.kishormainali.fl_updater');
+  final calls = <MethodCall>[];
 
   setUp(() {
+    calls.clear();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (MethodCall methodCall) async {
-          return '42';
-        });
+      calls.add(methodCall);
+      return null;
+    });
   });
 
   tearDown(() {
@@ -20,7 +23,20 @@ void main() {
         .setMockMethodCallHandler(channel, null);
   });
 
-  test('getPlatformVersion', () async {
-    expect(await platform.getPlatformVersion(), '42');
+  test('openStore forwards iosAppId and androidPackageId', () async {
+    await platform.openStore(iosAppId: '123456789', androidPackageId: 'com.example.app');
+
+    expect(calls, hasLength(1));
+    expect(calls.single.method, 'openStore');
+    expect(calls.single.arguments, {
+      'iosAppId': '123456789',
+      'androidPackageId': 'com.example.app',
+    });
+  });
+
+  test('openStore forwards null arguments when omitted', () async {
+    await platform.openStore();
+
+    expect(calls.single.arguments, {'iosAppId': null, 'androidPackageId': null});
   });
 }
