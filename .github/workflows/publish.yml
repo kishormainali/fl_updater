@@ -16,6 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       id-token: write # Required for pub.dev OIDC authentication
+      contents: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -25,6 +26,9 @@ jobs:
         with:
           channel: 'stable'
           cache: true
+
+      - name: Set up Dart (for OIDC auth with pub.dev)
+        uses: dart-lang/setup-dart@v1
 
       - name: Install dependencies
         run: flutter pub get
