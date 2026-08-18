@@ -10,7 +10,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('fl_updater Example'), findsOneWidget);
-    expect(find.widgetWithText(FilledButton, 'Check for Update (Default Dialog)'),
+    expect(
+        find.widgetWithText(FilledButton, 'Check for Update (Default Dialog)'),
         findsOneWidget);
   });
 }

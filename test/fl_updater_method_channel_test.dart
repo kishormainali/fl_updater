@@ -24,7 +24,8 @@ void main() {
   });
 
   test('openStore forwards iosAppId and androidPackageId', () async {
-    await platform.openStore(iosAppId: '123456789', androidPackageId: 'com.example.app');
+    await platform.openStore(
+        iosAppId: '123456789', androidPackageId: 'com.example.app');
 
     expect(calls, hasLength(1));
     expect(calls.single.method, 'openStore');
@@ -37,6 +38,7 @@ void main() {
   test('openStore forwards null arguments when omitted', () async {
     await platform.openStore();
 
-    expect(calls.single.arguments, {'iosAppId': null, 'androidPackageId': null});
+    expect(
+        calls.single.arguments, {'iosAppId': null, 'androidPackageId': null});
   });
 }

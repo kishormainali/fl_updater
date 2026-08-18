@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import 'update_status.dart';
 import '../utils/version_comparator.dart';
 
@@ -13,24 +15,87 @@ class UpdateInfo {
   });
 
   /// Constructs an [UpdateInfo] by comparing [currentVersion] against the
-  /// Firebase Remote Config values in [values].
-  ///
-  /// Expected keys in [values]:
-  /// - `'fl_updater_latest_version'`: The latest published version (e.g. `'2.1.0'`).
-  /// - `'fl_updater_min_version'`: The minimum required version below which an update is forced (e.g. `'1.5.0'`).
+  /// Firebase Remote Config values in [values] for `fl_updater_latest_version` and `fl_updater_min_version`.
   factory UpdateInfo.fromRemoteConfigValues({
     required Map<String, String> values,
     required String currentVersion,
     String? iosAppId,
     String? androidPackageId,
   }) {
-    final rawLatest = values['fl_updater_latest_version'];
+    final rawLatest = values['fl_updater_latest_version']?.trim();
     final latestVersion = (rawLatest != null && rawLatest.isNotEmpty)
         ? rawLatest
         : currentVersion;
 
-    final rawMin = values['fl_updater_min_version'];
+    final rawMin = values['fl_updater_min_version']?.trim();
     final minVersion = (rawMin != null && rawMin.isNotEmpty) ? rawMin : '0.0.0';
+
+    final status = VersionComparator.compare(
+      currentVersion: currentVersion,
+      latestVersion: latestVersion,
+      minVersion: minVersion,
+    );
+
+    return UpdateInfo(
+      currentVersion: currentVersion,
+      latestVersion: latestVersion,
+      status: status,
+      iosAppId: (iosAppId == null || iosAppId.isEmpty) ? null : iosAppId,
+      androidPackageId: (androidPackageId == null || androidPackageId.isEmpty)
+          ? null
+          : androidPackageId,
+    );
+  }
+
+  /// Constructs an [UpdateInfo] from a Firebase Remote Config template JSON
+  /// (e.g. exported from the Firebase Console containing "conditions" and "parameters").
+  factory UpdateInfo.fromTemplateJson({
+    required Map<String, dynamic> template,
+    required String currentVersion,
+    TargetPlatform? platform,
+    String? iosAppId,
+    String? androidPackageId,
+  }) {
+    final targetPlatform = platform ?? defaultTargetPlatform;
+    final conditionName = targetPlatform == TargetPlatform.iOS
+        ? 'fl_updater_ios'
+        : (targetPlatform == TargetPlatform.android
+            ? 'fl_updater_android'
+            : null);
+
+    final parameters = template['parameters'];
+    final paramsMap = (parameters is Map) ? parameters : <dynamic, dynamic>{};
+
+    String? extractParamValue(String paramKey) {
+      final param = paramsMap[paramKey];
+      if (param is! Map) return null;
+
+      if (conditionName != null) {
+        final conditionalValues = param['conditionalValues'];
+        if (conditionalValues is Map) {
+          final condVal = conditionalValues[conditionName];
+          if (condVal is Map) {
+            if (condVal['useInAppDefault'] != true) {
+              final val = condVal['value']?.toString().trim();
+              if (val != null && val.isNotEmpty) return val;
+            }
+          }
+        }
+      }
+
+      final defaultValue = param['defaultValue'];
+      if (defaultValue is Map) {
+        if (defaultValue['useInAppDefault'] != true) {
+          final val = defaultValue['value']?.toString().trim();
+          if (val != null && val.isNotEmpty) return val;
+        }
+      }
+      return null;
+    }
+
+    final latestVersion =
+        extractParamValue('fl_updater_latest_version') ?? currentVersion;
+    final minVersion = extractParamValue('fl_updater_min_version') ?? '0.0.0';
 
     final status = VersionComparator.compare(
       currentVersion: currentVersion,

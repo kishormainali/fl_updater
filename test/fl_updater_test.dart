@@ -1,13 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:fl_updater/fl_updater.dart';
 import 'package:fl_updater/src/services/fl_updater_platform_interface.dart';
 import 'package:fl_updater/src/services/fl_updater_method_channel.dart';
-import 'package:fl_updater/src/services/snooze_store.dart';
+import 'package:fl_updater/src/services/remote_config_service.dart';
 
-class MockFlUpdaterPlatform with MockPlatformInterfaceMixin implements FlUpdaterPlatform {
+class MockRemoteConfigService extends Mock implements RemoteConfigService {}
+
+class MockFlUpdaterPlatform
+    with MockPlatformInterfaceMixin
+    implements FlUpdaterPlatform {
   String? lastIosAppId;
   String? lastAndroidPackageId;
   var openStoreCallCount = 0;
@@ -31,7 +36,9 @@ void main() {
     expect(FlUpdaterPlatform.instance, isInstanceOf<MethodChannelFlUpdater>());
   });
 
-  test('checkForUpdate returns none by default in debug mode with no injected dependencies', () async {
+  test(
+      'checkForUpdate returns none by default in debug mode with no injected dependencies',
+      () async {
     // No mocked platform, no mocked RemoteConfigService, no Firebase setup —
     // this only works because RemoteConfigService gates on kDebugMode before
     // touching any platform channel (see Task 7).
@@ -42,7 +49,8 @@ void main() {
     expect(info.status, UpdateStatus.none);
   });
 
-  testWidgets('showUpdateDialog does nothing when status is none', (tester) async {
+  testWidgets('showUpdateDialog does nothing when status is none',
+      (tester) async {
     FlUpdaterPlatform.instance = MockFlUpdaterPlatform();
     final updater = FlUpdater();
 
@@ -70,7 +78,8 @@ void main() {
     expect(find.byType(AlertDialog), findsNothing);
   });
 
-  testWidgets('showUpdateDialog shows dialog and opens store on Update tap', (tester) async {
+  testWidgets('showUpdateDialog shows dialog and opens store on Update tap',
+      (tester) async {
     final platform = MockFlUpdaterPlatform();
     FlUpdaterPlatform.instance = platform;
     final updater = FlUpdater();
@@ -108,7 +117,8 @@ void main() {
     expect(platform.lastAndroidPackageId, 'com.example.app');
   });
 
-  testWidgets('showUpdateDialog snoozes and dismisses on Later tap', (tester) async {
+  testWidgets('showUpdateDialog snoozes and dismisses on Later tap',
+      (tester) async {
     FlUpdaterPlatform.instance = MockFlUpdaterPlatform();
     final updater = FlUpdater();
     final snoozeStore = FlUpdaterSnoozeStore();
@@ -139,5 +149,37 @@ void main() {
 
     expect(find.byType(AlertDialog), findsNothing);
     expect(await snoozeStore.isSnoozed('1.1.0'), isTrue);
+  });
+
+  test('clearSnooze and clearSnoozeStore clear snoozed state', () async {
+    final snoozeStore = FlUpdaterSnoozeStore();
+    await snoozeStore.snooze('2.0.0', const Duration(days: 1));
+    expect(await snoozeStore.isSnoozed('2.0.0'), isTrue);
+
+    final updater = FlUpdater(snoozeStore: snoozeStore);
+    await updater.clearSnooze();
+    expect(await snoozeStore.isSnoozed('2.0.0'), isFalse);
+
+    await snoozeStore.snooze('2.0.0', const Duration(days: 1));
+    expect(await snoozeStore.isSnoozed('2.0.0'), isTrue);
+
+    await FlUpdater.clearSnoozeStore();
+    expect(await snoozeStore.isSnoozed('2.0.0'), isFalse);
+  });
+
+  test('FlUpdater.listenForUpdates delegates to RemoteConfigService', () async {
+    final mockService = MockRemoteConfigService();
+    when(() => mockService.listenForUpdates(
+          any(),
+          enableLogging: any(named: 'enableLogging'),
+        )).thenReturn(null);
+
+    final updater = FlUpdater(remoteConfigService: mockService);
+    updater.listenForUpdates(() async {});
+
+    verify(() => mockService.listenForUpdates(
+          any(),
+          enableLogging: any(named: 'enableLogging'),
+        )).called(1);
   });
 }

@@ -1,6 +1,6 @@
 name: fl_updater
 description: "Firebase Remote Config-driven app update dialog with automatic wrapper, snoozable soft updates, and native App/Play Store opening."
-version: 0.0.1
+version: 0.0.2
 homepage: https://github.com/kishormainali/fl_updater
 repository: https://github.com/kishormainali/fl_updater
 issue_tracker: https://github.com/kishormainali/fl_updater/issues

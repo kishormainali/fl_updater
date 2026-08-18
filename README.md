@@ -18,7 +18,7 @@ A lightweight, cost-conscious Flutter plugin for **Firebase Remote Config-driven
 - ⏰ **Smart Snoozing**: Dismissing a soft update snoozes it for a configurable duration (default: 3 days). Snooze is scoped per version, so releasing a newer update immediately prompts the user again.
 - 💰 **Cost-Conscious Architecture**: Designed for Firebase Remote Config usage-based pricing:
   - **Debug mode disabled by default**: Prevents development hot restarts from consuming Remote Config quotas.
-  - **Cached fetches**: Configurable `minimumFetchInterval` (default: 12 hours) ensures throttled network requests.
+  - **Cached fetches**: Configurable `minimumFetchInterval` (default: 1 hour) ensures throttled network requests.
 - 🏬 **Native Store Redirection**: Opens the platform's native store page (Apple App Store on iOS, Google Play Store on Android).
 - 🎨 **Fully Customizable UI**: Style the built-in Material dialog with `FlUpdaterDialogStyle`, or supply your own custom UI via `dialogBuilder`.
 
@@ -53,19 +53,35 @@ Future<void> main() async {
 
 ## 🔧 Firebase Remote Config Setup
 
-Configure the following parameters in your **Firebase Console → Remote Config**:
+Configure update parameters in your **Firebase Console → Remote Config**.
 
-| Key | Type | Description | Example |
+### 1. Parameters
+
+Create the following two parameters:
+
+| Parameter Key | Type | Description | Default Value |
 | :--- | :--- | :--- | :--- |
-| `fl_updater_latest_version` | String | The latest published version available in stores. | `"2.3.0"` |
-| `fl_updater_min_version` | String | The minimum supported version. Versions below this trigger a **mandatory (force)** update. | `"2.0.0"` |
+| `fl_updater_latest_version` | String | The latest published version available in stores. | `"0.0.0"` |
+| `fl_updater_min_version` | String | The minimum supported version below which an update is forced. | `"0.0.0"` (or Use in-app default) |
 
-> **Note**: If `fl_updater_min_version` is omitted or empty, it defaults to `"0.0.0"` (soft updates only).
+### 2. Platform Conditional Values (`fl_updater_android` & `fl_updater_ios`)
 
-App Store ID and Android package name are configured directly in Dart code since they are static per-app values:
+In Firebase Console, you can define targeting conditions:
+- **`fl_updater_android`**: Condition rule: `device.os == 'android'`
+- **`fl_updater_ios`**: Condition rule: `device.os == 'ios'`
 
-- **iOS (`iosAppId`)**: Numeric App Store ID (e.g., `'123456789'`). Required on iOS for App Store redirection.
-- **Android (`androidPackageId`)**: Package name (e.g., `'com.example.app'`). Defaults to the host app's package name if omitted.
+Then add conditional values to `fl_updater_latest_version` and `fl_updater_min_version`:
+
+- **For Android (`fl_updater_android`)**: e.g., latest version `"2.5.0"`, min version `"2.0.0"`
+- **For iOS (`fl_updater_ios`)**: e.g., latest version `"2.4.0"`, min version `"2.1.0"`
+
+Firebase Remote Config automatically evaluates these conditions per device on fetch and serves the appropriate values to `fl_updater`. All other keys are ignored.
+
+### 3. Store Redirection Identifiers
+
+Store identifiers are configured directly in Dart code (via the wrapper or API call):
+- **iOS (`iosAppId`)**: Numeric Apple App Store ID (e.g., `'123456789'`).
+- **Android (`androidPackageId`)**: Package name (e.g., `'com.example.app'`). Defaults to the host app package name if omitted.
 
 ---
 
@@ -200,6 +216,29 @@ FlUpdaterWrapper(
 )
 ```
 
+### Resetting Snooze (For Debugging & Testing)
+
+You can automatically clear the snooze store on every app launch during development:
+
+```dart
+FlUpdaterWrapper(
+  enableInDebugMode: true,
+  clearSnoozeInDebugMode: true, // Clears previous snoozes on app launch in debug mode
+  child: child!,
+)
+```
+
+Or reset it manually via code:
+
+```dart
+// Globally clear active snooze state:
+await FlUpdater.clearSnoozeStore();
+
+// Or on an instance:
+final updater = FlUpdater();
+await updater.clearSnooze();
+```
+
 ---
 
 ## 💰 Fetch Behavior & Quota Optimization
@@ -213,13 +252,57 @@ To safeguard your Firebase Remote Config quota and avoid unintended billing:
      child: child!,
    )
    ```
-2. **Fetch Interval Throttling**: The `minimumFetchInterval` (default: 12 hours) prevents frequent network queries. Repeated checks within this duration use the Firebase cached values.
+2. **Fetch Interval Throttling**: The `minimumFetchInterval` (default: 1 hour) prevents frequent network queries. Repeated checks within this duration use the Firebase cached values.
    ```dart
    FlUpdaterWrapper(
-     minimumFetchInterval: const Duration(hours: 6),
+     minimumFetchInterval: const Duration(minutes: 30),
      child: child!,
    )
    ```
+
+---
+
+## ⚡ Real-Time Remote Config Updates
+
+`fl_updater` listens to Firebase Remote Config updates in real time via `onConfigUpdated`:
+
+- When you publish changes to `fl_updater_latest_version` or `fl_updater_min_version` in the Firebase Console, the new config is activated **immediately**.
+- The update status is evaluated without waiting for `minimumFetchInterval` to expire.
+- Active snoozes are automatically cleared so users are prompted for the newly published version right away.
+- If the new version requires an update, the update dialog appears instantly for active users.
+
+Real-time updates are enabled by default (`listenForRealtimeUpdates: true`). You can disable them if needed:
+
+```dart
+FlUpdaterWrapper(
+  listenForRealtimeUpdates: false, // Only check on app launch
+  child: child!,
+)
+```
+
+---
+
+## 🪵 Diagnostic Logging
+
+Logging is **disabled by default** to keep console and production outputs clean. You can enable diagnostic logging in several ways:
+
+### 1. Globally
+
+```dart
+void main() {
+  FlUpdater.enableLogging = true;
+  runApp(const MyApp());
+}
+```
+
+### 2. Per Wrapper or Method Call
+
+```dart
+FlUpdaterWrapper(
+  enableLogging: true,
+  child: child!,
+)
+```
 
 ---
 
@@ -231,9 +314,13 @@ To safeguard your Firebase Remote Config quota and avoid unintended billing:
 | :--- | :--- | :--- | :--- |
 | `iosAppId` | `String?` | `null` | Numeric Apple App Store ID (required for iOS). |
 | `androidPackageId` | `String?` | `null` | Google Play Store package name (defaults to host app). |
+| `navigatorKey` | `GlobalKey<NavigatorState>?` | `null` | Optional explicit key for the root `Navigator`. |
 | `snoozeDuration` | `Duration` | `Duration(days: 3)` | How long to snooze soft updates when dismissed. |
-| `minimumFetchInterval` | `Duration` | `Duration(hours: 12)` | Throttling interval for Firebase Remote Config fetches. |
+| `minimumFetchInterval` | `Duration` | `Duration(hours: 1)` | Throttling interval for Firebase Remote Config fetches. |
 | `enableInDebugMode` | `bool` | `false` | Enable checks in `kDebugMode`. |
+| `clearSnoozeInDebugMode` | `bool` | `false` | Automatically clear saved snooze state on launch in debug mode. |
+| `listenForRealtimeUpdates` | `bool` | `true` | Instantly activate and check updates on Remote Config publish. |
+| `enableLogging` | `bool?` | `null` | Enable diagnostic console logs for troubleshooting. |
 | `title` | `String?` | `'Update available'` | Dialog title text. |
 | `message` | `String?` | `null` | Dialog message body text. |
 | `updateButtonText` | `String?` | `'Update'` | Label for the update button. |

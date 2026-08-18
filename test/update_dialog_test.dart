@@ -39,7 +39,8 @@ void main() {
     );
   }
 
-  testWidgets('soft update shows Later button and calls callbacks', (tester) async {
+  testWidgets('soft update shows Later button and calls callbacks',
+      (tester) async {
     var updateTapped = false;
     var laterTapped = false;
 

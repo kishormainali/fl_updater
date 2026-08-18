@@ -14,7 +14,8 @@ void main() {
     expect(await store.isSnoozed('1.0.0'), isFalse);
   });
 
-  test('isSnoozed is true for the snoozed version within the duration', () async {
+  test('isSnoozed is true for the snoozed version within the duration',
+      () async {
     final store = FlUpdaterSnoozeStore();
     await store.snooze('1.2.0', const Duration(days: 3));
 

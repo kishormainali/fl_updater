@@ -38,6 +38,7 @@ class ExampleApp extends StatelessWidget {
         // enableInDebugMode is true here for example/testing purposes.
         // In production apps, leave this false to avoid consuming Remote Config quota during development.
         enableInDebugMode: true,
+        enableLogging: true,
         child: child!,
       ),
       home: const HomePage(),
@@ -89,7 +90,8 @@ class _HomePageState extends State<HomePage> {
       androidPackageId: _androidPackageId,
       enableInDebugMode: true,
       title: '🚀 Major Update Available!',
-      message: 'A brand-new version is ready with exciting features and enhancements.',
+      message:
+          'A brand-new version is ready with exciting features and enhancements.',
       updateButtonText: 'Upgrade Now',
       laterButtonText: 'Remind Me Later',
       style: FlUpdaterDialogStyle(
@@ -101,7 +103,8 @@ class _HomePageState extends State<HomePage> {
         ),
         messageStyle: const TextStyle(color: Colors.black87, fontSize: 14),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        icon: const Icon(Icons.rocket_launch, size: 40, color: Colors.deepPurple),
+        icon:
+            const Icon(Icons.rocket_launch, size: 40, color: Colors.deepPurple),
       ),
     );
   }
@@ -160,7 +163,8 @@ class _HomePageState extends State<HomePage> {
                   children: [
                     Text(
                       'Firebase Remote Config Integration',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      style:
+                          TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                     ),
                     SizedBox(height: 8),
                     Text(
@@ -186,8 +190,10 @@ class _HomePageState extends State<HomePage> {
                         style: TextStyle(fontWeight: FontWeight.bold),
                       ),
                       const Divider(),
-                      Text('Current Version: ${_lastCheckedInfo!.currentVersion}'),
-                      Text('Latest Version: ${_lastCheckedInfo!.latestVersion}'),
+                      Text(
+                          'Current Version: ${_lastCheckedInfo!.currentVersion}'),
+                      Text(
+                          'Latest Version: ${_lastCheckedInfo!.latestVersion}'),
                       Text('Status: ${_lastCheckedInfo!.status.name}'),
                     ],
                   ),

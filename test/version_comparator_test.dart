@@ -50,7 +50,8 @@ void main() {
       expect(status, UpdateStatus.none);
     });
 
-    test('treats a malformed current version as very old (soft, not force)', () {
+    test('treats a malformed current version as very old (soft, not force)',
+        () {
       final status = VersionComparator.compare(
         currentVersion: 'not-a-version',
         latestVersion: '1.0.0',

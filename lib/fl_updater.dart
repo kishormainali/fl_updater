@@ -3,16 +3,21 @@
 /// App Store / Google Play Store redirection.
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'src/models/update_info.model.dart';
 import 'src/services/remote_config_service.dart';
 import 'src/services/snooze_store.dart';
+import 'src/utils/logger.dart';
 import 'src/widgets/dialog_presenter.dart';
 import 'src/widgets/update_dialog.dart';
 
 export 'src/models/update_info.model.dart';
 export 'src/models/update_status.dart';
+export 'src/services/snooze_store.dart' show FlUpdaterSnoozeStore;
+export 'src/utils/logger.dart' show FlUpdaterLogger;
 export 'src/widgets/update_dialog.dart'
     show FlUpdaterDialog, FlUpdaterDialogBuilder, FlUpdaterDialogStyle;
 export 'src/widgets/update_wrapper.dart';
@@ -28,11 +33,39 @@ class FlUpdater {
   FlUpdater({
     RemoteConfigService? remoteConfigService,
     FlUpdaterSnoozeStore? snoozeStore,
+    bool? enableLogging,
   })  : _remoteConfigService = remoteConfigService ?? RemoteConfigService(),
-        _snoozeStore = snoozeStore ?? FlUpdaterSnoozeStore();
+        _snoozeStore = snoozeStore ?? FlUpdaterSnoozeStore(),
+        _enableLogging = enableLogging;
+
+  /// Global flag to enable or disable diagnostic logging across fl_updater.
+  ///
+  /// Defaults to `false`.
+  static bool get enableLogging => FlUpdaterLogger.enabled;
+  static set enableLogging(bool value) => FlUpdaterLogger.enabled = value;
+
+  /// Clears any active snooze state from local storage globally.
+  ///
+  /// Useful for debugging and testing update prompts without waiting for snooze expiry.
+  static Future<void> clearSnoozeStore() async {
+    FlUpdaterLogger.log('Clearing snooze store globally.');
+    await FlUpdaterSnoozeStore().clear();
+  }
+
+  /// Optional per-instance override for diagnostic logging.
+  final bool? _enableLogging;
 
   final RemoteConfigService _remoteConfigService;
   final FlUpdaterSnoozeStore _snoozeStore;
+
+  /// Clears any active snooze state from local storage.
+  ///
+  /// Useful for debugging and testing update prompts without waiting for snooze expiry.
+  Future<void> clearSnooze() async {
+    FlUpdaterLogger.log('Clearing snooze store.',
+        enableLogging: _enableLogging);
+    await _snoozeStore.clear();
+  }
 
   /// Fetches Firebase Remote Config and computes the current [UpdateInfo].
   ///
@@ -40,12 +73,16 @@ class FlUpdater {
   /// - [minimumFetchInterval]: Throttling duration for Remote Config fetches.
   /// - [enableInDebugMode]: Whether to execute Remote Config checks in debug mode
   ///   (defaults to `false` to avoid unintended fetches during local development).
+  /// - [clearSnoozeInDebugMode]: Whether to clear any stored snooze state when running in debug mode.
+  /// - [enableLogging]: Whether to emit diagnostic logs for this check.
   /// - [iosAppId]: The Apple App Store numeric ID (e.g. `'123456789'`).
   /// - [androidPackageId]: The Google Play Store package name (defaults to host app's package name if omitted).
   Future<UpdateInfo> checkForUpdate({
     Duration snoozeDuration = const Duration(days: 3),
-    Duration minimumFetchInterval = const Duration(hours: 12),
+    Duration minimumFetchInterval = const Duration(hours: 1),
     bool enableInDebugMode = false,
+    bool clearSnoozeInDebugMode = false,
+    bool? enableLogging,
     String? iosAppId,
     String? androidPackageId,
   }) {
@@ -53,6 +90,8 @@ class FlUpdater {
       snoozeDuration: snoozeDuration,
       minimumFetchInterval: minimumFetchInterval,
       enableInDebugMode: enableInDebugMode,
+      clearSnoozeInDebugMode: clearSnoozeInDebugMode,
+      enableLogging: enableLogging ?? _enableLogging,
       iosAppId: iosAppId,
       androidPackageId: androidPackageId,
     );
@@ -70,6 +109,7 @@ class FlUpdater {
     UpdateInfo? info,
     String? iosAppId,
     String? androidPackageId,
+    GlobalKey<NavigatorState>? navigatorKey,
     FlUpdaterDialogBuilder? dialogBuilder,
     String? title,
     String? message,
@@ -77,14 +117,19 @@ class FlUpdater {
     String? laterButtonText,
     FlUpdaterDialogStyle? style,
     Duration snoozeDuration = const Duration(days: 3),
-    Duration minimumFetchInterval = const Duration(hours: 12),
+    Duration minimumFetchInterval = const Duration(hours: 1),
     bool enableInDebugMode = false,
+    bool clearSnoozeInDebugMode = false,
+    bool? enableLogging,
   }) async {
+    final resolvedLogging = enableLogging ?? _enableLogging;
     final resolvedInfo = info ??
         await checkForUpdate(
           snoozeDuration: snoozeDuration,
           minimumFetchInterval: minimumFetchInterval,
           enableInDebugMode: enableInDebugMode,
+          clearSnoozeInDebugMode: clearSnoozeInDebugMode,
+          enableLogging: resolvedLogging,
           iosAppId: iosAppId,
           androidPackageId: androidPackageId,
         );
@@ -94,12 +139,28 @@ class FlUpdater {
       info: resolvedInfo,
       snoozeStore: _snoozeStore,
       snoozeDuration: snoozeDuration,
+      navigatorKey: navigatorKey,
       dialogBuilder: dialogBuilder,
       title: title,
       message: message,
       updateButtonText: updateButtonText,
       laterButtonText: laterButtonText,
       style: style,
+      enableLogging: resolvedLogging,
+    );
+  }
+
+  /// Listens to real-time Firebase Remote Config changes.
+  ///
+  /// When `fl_updater_latest_version` or `fl_updater_min_version` is published in the
+  /// Firebase Console, activates the updated config and invokes [onConfigUpdated].
+  StreamSubscription<dynamic>? listenForUpdates(
+    Future<void> Function() onConfigUpdated, {
+    bool? enableLogging,
+  }) {
+    return _remoteConfigService.listenForUpdates(
+      onConfigUpdated,
+      enableLogging: enableLogging ?? _enableLogging,
     );
   }
 }
