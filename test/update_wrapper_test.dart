@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -286,7 +288,7 @@ void main() {
     expect(updateCallback, isNotNull);
 
     // Real-time update arrives from Firebase Console
-    await updateCallback!();
+    unawaited(updateCallback!());
     await tester.pumpAndSettle();
 
     // Snooze should be cleared by real-time update
