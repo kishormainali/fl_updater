@@ -54,9 +54,9 @@ void main() {
   });
 
   // flutter test runs in JIT/debug mode, so kDebugMode is true here —
-  // enableInDebugMode: true is required in every test below to reach the
+  // enabled: true is required in every test below to reach the
   // real fetch -> status -> snooze-downgrade logic instead of the
-  // kDebugMode gate already covered elsewhere.
+  // enabled gate already covered elsewhere.
 
   test(
       'checkForUpdate returns soft when the fetched latest_version is newer than installed',
@@ -70,7 +70,7 @@ void main() {
 
     final service = RemoteConfigService(remoteConfig: mockRemoteConfig);
 
-    final info = await service.checkForUpdate(enableInDebugMode: true);
+    final info = await service.checkForUpdate(enabled: true);
 
     expect(info.status, UpdateStatus.soft);
     expect(info.currentVersion, '1.0.0');
@@ -93,7 +93,7 @@ void main() {
     final service = RemoteConfigService(
         remoteConfig: mockRemoteConfig, snoozeStore: snoozeStore);
 
-    final info = await service.checkForUpdate(enableInDebugMode: true);
+    final info = await service.checkForUpdate(enabled: true);
 
     expect(info.status, UpdateStatus.none);
   });
@@ -105,7 +105,7 @@ void main() {
 
     final service = RemoteConfigService(remoteConfig: mockRemoteConfig);
 
-    final info = await service.checkForUpdate(enableInDebugMode: true);
+    final info = await service.checkForUpdate(enabled: true);
 
     expect(info.status, UpdateStatus.none);
   });
@@ -147,7 +147,7 @@ void main() {
     final service = RemoteConfigService(remoteConfig: mockRemoteConfig);
 
     final info = await service.checkForUpdate(
-      enableInDebugMode: true,
+      enabled: true,
     );
 
     expect(info.status, UpdateStatus.force); // current is 1.0.0 < 1.5.0

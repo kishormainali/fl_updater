@@ -53,35 +53,47 @@ Future<void> main() async {
 
 ## 🔧 Firebase Remote Config Setup
 
-Configure update parameters in your **Firebase Console → Remote Config**.
+`fl_updater` reads two String parameters from **Firebase Console → Build → Remote Config**. This section walks through setting them up from scratch, plus an optional platform-targeting layer.
 
-### 1. Parameters
+> In-app update prompts only make sense for the build that's actually published to the App Store / Play Store — a dev/staging/internal build isn't distributed there, so there's nothing for it to "update" to. This guide is written with that in mind: one Firebase project, one production app, no build-flavor or white-label targeting.
 
-Create the following two parameters:
+### Step 1 — Create the parameters
 
-| Parameter Key | Type | Description | Default Value |
+Go to **Build → Remote Config**. If this is the project's first Remote Config parameter, click **Create configuration**; otherwise click **Add parameter**.
+
+Create both of these:
+
+| Parameter key | Type | Default value | Description |
 | :--- | :--- | :--- | :--- |
-| `fl_updater_latest_version` | String | The latest published version available in stores. | `"0.0.0"` |
-| `fl_updater_min_version` | String | The minimum supported version below which an update is forced. | `"0.0.0"` (or Use in-app default) |
+| `fl_updater_latest_version` | String | `1.0.0` (your current release) | The latest published version available in stores. |
+| `fl_updater_min_version` | String | `1.0.0` (or lower) | The minimum supported version. Installs below this get a non-dismissible force update. |
 
-### 2. Platform Conditional Values (`fl_updater_android` & `fl_updater_ios`)
+Click **Publish changes** (top right) once both are created. At this point every install of your app sees the same two values — no targeting yet.
 
-In Firebase Console, you can define targeting conditions:
-- **`fl_updater_android`**: Condition rule: `device.os == 'android'`
-- **`fl_updater_ios`**: Condition rule: `device.os == 'ios'`
+### Step 2 — (Optional) Different values per platform
 
-Then add conditional values to `fl_updater_latest_version` and `fl_updater_min_version`:
+Skip this step if Android and iOS should always see the same version numbers.
 
-- **For Android (`fl_updater_android`)**: e.g., latest version `"2.5.0"`, min version `"2.0.0"`
-- **For iOS (`fl_updater_ios`)**: e.g., latest version `"2.4.0"`, min version `"2.1.0"`
+1. In the Remote Config page, click **Add condition** (or **+ Add value for condition** from a parameter's row — same dialog either way).
+2. **Name**: `fl_updater_android` — **Applies if...**: **Platform** → **Android**. Pick any tag color (cosmetic). Click **Create condition**.
+3. Repeat for **`fl_updater_ios`** with **Platform** → **iOS**.
+4. Open `fl_updater_latest_version`, click **Add new value**, select `fl_updater_android`, enter its version (e.g. `2.5.0`). Repeat for `fl_updater_ios`.
+5. Do the same on `fl_updater_min_version`.
+6. **Publish changes.**
 
-Firebase Remote Config automatically evaluates these conditions per device on fetch and serves the appropriate values to `fl_updater`. All other keys are ignored.
+Any device matching neither condition (e.g. web, or a platform you haven't configured) falls back to the parameter's default value.
 
-### 3. Store Redirection Identifiers
+### Step 3 — Configure store redirection identifiers (in code, not console)
 
-Store identifiers are configured directly in Dart code (via the wrapper or API call):
+Not part of Remote Config — pass these directly to `FlUpdaterWrapper` / the imperative API:
 - **iOS (`iosAppId`)**: Numeric Apple App Store ID (e.g., `'123456789'`).
 - **Android (`androidPackageId`)**: Package name (e.g., `'com.example.app'`). Defaults to the host app package name if omitted.
+
+### Step 4 — Verify it worked
+
+- Run the app with `enableLogging: true` (see "🪵 Diagnostic Logging" below) and look for the `Fetched remote config values: {...}` log line to confirm the values `fl_updater` actually received.
+- Pass `enabled: true` while testing — it defaults to `!kDebugMode`, so debug builds skip fetching entirely otherwise (see "💰 Fetch Behavior & Quota Optimization" below).
+- Remote Config itself throttles fetches via `minimumFetchInterval` (default 1 hour) — repeated test runs within that window reuse the previous fetch. Lower it temporarily while iterating if a fresh publish doesn't seem to take effect.
 
 ---
 
@@ -222,7 +234,7 @@ You can automatically clear the snooze store on every app launch during developm
 
 ```dart
 FlUpdaterWrapper(
-  enableInDebugMode: true,
+  enabled: true,
   clearSnoozeInDebugMode: true, // Clears previous snoozes on app launch in debug mode
   child: child!,
 )
@@ -245,10 +257,10 @@ await updater.clearSnooze();
 
 To safeguard your Firebase Remote Config quota and avoid unintended billing:
 
-1. **Disabled in Debug Mode by Default**: `kDebugMode` disables Remote Config fetching entirely so that frequent hot restarts do not burn quotas. To test in debug mode or staging, pass `enableInDebugMode: true`:
+1. **Disabled in Debug Mode by Default**: `enabled` defaults to `!kDebugMode`, so Remote Config fetching is skipped entirely in debug builds and frequent hot restarts do not burn quotas. `enabled` is the global gate for both the initial check and real-time listening — pass it explicitly to override the default in either direction:
    ```dart
    FlUpdaterWrapper(
-     enableInDebugMode: true, // Opt-in for debug/staging builds
+     enabled: true, // Opt-in for debug/staging builds
      child: child!,
    )
    ```
@@ -317,7 +329,7 @@ FlUpdaterWrapper(
 | `navigatorKey` | `GlobalKey<NavigatorState>?` | `null` | Optional explicit key for the root `Navigator`. |
 | `snoozeDuration` | `Duration` | `Duration(days: 3)` | How long to snooze soft updates when dismissed. |
 | `minimumFetchInterval` | `Duration` | `Duration(hours: 1)` | Throttling interval for Firebase Remote Config fetches. |
-| `enableInDebugMode` | `bool` | `false` | Enable checks in `kDebugMode`. |
+| `enabled` | `bool` | `!kDebugMode` | Global gate for automatic update checking (initial check and real-time listening). |
 | `clearSnoozeInDebugMode` | `bool` | `false` | Automatically clear saved snooze state on launch in debug mode. |
 | `listenForRealtimeUpdates` | `bool` | `true` | Instantly activate and check updates on Remote Config publish. |
 | `enableLogging` | `bool?` | `null` | Enable diagnostic console logs for troubleshooting. |

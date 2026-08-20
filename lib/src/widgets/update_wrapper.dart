@@ -42,7 +42,7 @@ class FlUpdaterWrapper extends StatefulWidget {
     this.style,
     this.snoozeDuration = const Duration(days: 3),
     this.minimumFetchInterval = const Duration(hours: 1),
-    this.enableInDebugMode = false,
+    this.enabled = !kDebugMode,
     this.clearSnoozeInDebugMode = false,
     this.listenForRealtimeUpdates = true,
     this.enableLogging,
@@ -97,16 +97,21 @@ class FlUpdaterWrapper extends StatefulWidget {
   /// Defaults to 1 hour.
   final Duration minimumFetchInterval;
 
-  /// Whether to enable update checking in debug mode.
+  /// Global gate for automatic update checking (both the initial check and
+  /// real-time listening).
   ///
-  /// Defaults to `false` so development hot restarts do not consume Remote Config
-  /// quota or interrupt development flow.
-  final bool enableInDebugMode;
+  /// Defaults to `!kDebugMode`, so update checks run in release builds and
+  /// are skipped in debug builds, avoiding wasted Remote Config quota and
+  /// interrupted development flow during hot restarts. Pass `true` explicitly
+  /// to test update checks in debug mode, or `false` to disable checking
+  /// entirely regardless of build mode.
+  final bool enabled;
 
   /// Whether to automatically clear any saved snooze state when running in debug mode.
   ///
   /// When `true` and running in debug mode, previous snoozes are cleared so update
   /// prompts are shown again without waiting for the snooze duration to expire.
+  /// Only takes effect when [enabled] is also `true`.
   final bool clearSnoozeInDebugMode;
 
   /// Whether to listen to real-time Remote Config updates via [FirebaseRemoteConfig.onConfigUpdated].
@@ -145,12 +150,23 @@ class _FlUpdaterWrapperState extends State<FlUpdaterWrapper> {
   }
 
   void _setupRealtimeListener() {
-    if (!widget.listenForRealtimeUpdates) return;
-    if (kDebugMode && !widget.enableInDebugMode) {
+    // `enabled` is the master gate and takes precedence over every other
+    // parameter (enableLogging, listenForRealtimeUpdates) — checked first,
+    // before any of them are acted on. Also tears down any existing
+    // subscription, so toggling `enabled` off at runtime (via a rebuild)
+    // reliably stops real-time listening rather than leaving it running.
+    if (!widget.enabled) {
+      _realtimeSubscription?.cancel();
+      _realtimeSubscription = null;
       FlUpdaterLogger.log(
-        'Real-time Remote Config updates disabled in debug mode (set enableInDebugMode: true to test in debug).',
+        'Real-time Remote Config updates disabled (enabled is false; set enabled: true to test in debug).',
         enableLogging: widget.enableLogging,
       );
+      return;
+    }
+    if (!widget.listenForRealtimeUpdates) {
+      _realtimeSubscription?.cancel();
+      _realtimeSubscription = null;
       return;
     }
 
@@ -170,6 +186,15 @@ class _FlUpdaterWrapperState extends State<FlUpdaterWrapper> {
   }
 
   @override
+  void didUpdateWidget(covariant FlUpdaterWrapper oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.enabled != oldWidget.enabled ||
+        widget.listenForRealtimeUpdates != oldWidget.listenForRealtimeUpdates) {
+      _setupRealtimeListener();
+    }
+  }
+
+  @override
   void dispose() {
     _realtimeSubscription?.cancel();
     super.dispose();
@@ -179,6 +204,18 @@ class _FlUpdaterWrapperState extends State<FlUpdaterWrapper> {
 
   Future<void> _checkForUpdate({bool fromRealtime = false}) async {
     if (!mounted) return;
+
+    // `enabled` is the master gate and takes precedence over every other
+    // parameter (enableLogging, clearSnoozeInDebugMode) — checked first,
+    // before any of them are acted on.
+    if (!widget.enabled) {
+      FlUpdaterLogger.log(
+        'Update check skipped (enabled is false).',
+        enableLogging: widget.enableLogging,
+      );
+      return;
+    }
+
     if (_isDialogShowing) {
       FlUpdaterLogger.log(
         'Update check skipped because update dialog is already showing.',
@@ -211,7 +248,7 @@ class _FlUpdaterWrapperState extends State<FlUpdaterWrapper> {
         : await _remoteConfigService.checkForUpdate(
             snoozeDuration: widget.snoozeDuration,
             minimumFetchInterval: widget.minimumFetchInterval,
-            enableInDebugMode: widget.enableInDebugMode,
+            enabled: widget.enabled,
             enableLogging: widget.enableLogging,
             iosAppId: widget.iosAppId,
             androidPackageId: widget.androidPackageId,

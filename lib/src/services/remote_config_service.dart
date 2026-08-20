@@ -41,16 +41,33 @@ class RemoteConfigService {
   Future<UpdateInfo> checkForUpdate({
     Duration snoozeDuration = const Duration(days: 3),
     Duration minimumFetchInterval = const Duration(hours: 1),
-    bool enableInDebugMode = false,
+    bool enabled = !kDebugMode,
     bool clearSnoozeInDebugMode = false,
     bool? enableLogging,
     String? iosAppId,
     String? androidPackageId,
   }) async {
+    // `enabled` is the master gate and takes precedence over every other
+    // parameter below (enableLogging, clearSnoozeInDebugMode) — checked
+    // first, before any of them are acted on.
     final logging = enableLogging ?? this.enableLogging;
+    if (!enabled) {
+      FlUpdaterLogger.log(
+        'Update check skipped (enabled is false).',
+        enableLogging: logging,
+      );
+      return UpdateInfo(
+        currentVersion: '',
+        latestVersion: '',
+        status: UpdateStatus.none,
+        iosAppId: iosAppId,
+        androidPackageId: androidPackageId,
+      );
+    }
+
     FlUpdaterLogger.log(
       'Checking for update with snoozeDuration=$snoozeDuration, '
-      'minimumFetchInterval=$minimumFetchInterval, enableInDebugMode=$enableInDebugMode, '
+      'minimumFetchInterval=$minimumFetchInterval, enabled=$enabled, '
       'clearSnoozeInDebugMode=$clearSnoozeInDebugMode, '
       'iosAppId=$iosAppId, androidPackageId=$androidPackageId',
       enableLogging: logging,
@@ -62,20 +79,6 @@ class RemoteConfigService {
         enableLogging: logging,
       );
       await _snoozeStore.clear();
-    }
-
-    if (kDebugMode && !enableInDebugMode) {
-      FlUpdaterLogger.log(
-        'Update check skipped (debug mode is active and enableInDebugMode is false).',
-        enableLogging: logging,
-      );
-      return UpdateInfo(
-        currentVersion: '',
-        latestVersion: '',
-        status: UpdateStatus.none,
-        iosAppId: iosAppId,
-        androidPackageId: androidPackageId,
-      );
     }
 
     try {

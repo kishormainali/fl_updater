@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -48,8 +49,7 @@ void main() {
   });
 
   testWidgets(
-      'renders child and shows no dialog when debug-gated (default enableInDebugMode)',
-      (
+      'renders child and shows no dialog when debug-gated (default enabled)', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -72,7 +72,7 @@ void main() {
     when(() => mockRemoteConfigService.checkForUpdate(
           snoozeDuration: any(named: 'snoozeDuration'),
           minimumFetchInterval: any(named: 'minimumFetchInterval'),
-          enableInDebugMode: any(named: 'enableInDebugMode'),
+          enabled: any(named: 'enabled'),
           iosAppId: any(named: 'iosAppId'),
           androidPackageId: any(named: 'androidPackageId'),
         )).thenAnswer((_) async => const UpdateInfo(
@@ -88,7 +88,7 @@ void main() {
         builder: (context, child) => FlUpdaterWrapper(
           iosAppId: '123456789',
           androidPackageId: 'com.example.app',
-          enableInDebugMode: true,
+          enabled: true,
           remoteConfigService: mockRemoteConfigService,
           child: child!,
         ),
@@ -119,7 +119,7 @@ void main() {
     when(() => mockRemoteConfigService.checkForUpdate(
           snoozeDuration: any(named: 'snoozeDuration'),
           minimumFetchInterval: any(named: 'minimumFetchInterval'),
-          enableInDebugMode: any(named: 'enableInDebugMode'),
+          enabled: any(named: 'enabled'),
           iosAppId: any(named: 'iosAppId'),
           androidPackageId: any(named: 'androidPackageId'),
         )).thenAnswer((_) async => const UpdateInfo(
@@ -131,7 +131,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         builder: (context, child) => FlUpdaterWrapper(
-          enableInDebugMode: true,
+          enabled: true,
           remoteConfigService: mockRemoteConfigService,
           snoozeStore: snoozeStore,
           child: child!,
@@ -157,7 +157,7 @@ void main() {
     when(() => mockRemoteConfigService.checkForUpdate(
           snoozeDuration: any(named: 'snoozeDuration'),
           minimumFetchInterval: any(named: 'minimumFetchInterval'),
-          enableInDebugMode: any(named: 'enableInDebugMode'),
+          enabled: any(named: 'enabled'),
           iosAppId: any(named: 'iosAppId'),
           androidPackageId: any(named: 'androidPackageId'),
         )).thenAnswer((_) async => const UpdateInfo(
@@ -171,7 +171,7 @@ void main() {
         navigatorKey: navKey,
         builder: (context, child) => FlUpdaterWrapper(
           navigatorKey: navKey,
-          enableInDebugMode: true,
+          enabled: true,
           remoteConfigService: mockRemoteConfigService,
           child: child!,
         ),
@@ -197,7 +197,7 @@ void main() {
     when(() => mockRemoteConfigService.checkForUpdate(
           snoozeDuration: any(named: 'snoozeDuration'),
           minimumFetchInterval: any(named: 'minimumFetchInterval'),
-          enableInDebugMode: any(named: 'enableInDebugMode'),
+          enabled: any(named: 'enabled'),
           clearSnoozeInDebugMode: any(named: 'clearSnoozeInDebugMode'),
           enableLogging: any(named: 'enableLogging'),
           iosAppId: any(named: 'iosAppId'),
@@ -211,7 +211,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         builder: (context, child) => FlUpdaterWrapper(
-          enableInDebugMode: true,
+          enabled: true,
           clearSnoozeInDebugMode: true,
           remoteConfigService: mockRemoteConfigService,
           snoozeStore: snoozeStore,
@@ -224,6 +224,102 @@ void main() {
 
     expect(await snoozeStore.isSnoozed('2.0.0'), isFalse);
     expect(find.byType(AlertDialog), findsOneWidget);
+  });
+
+  testWidgets(
+      'enabled: false disables all functionality (no check, no clearSnoozeInDebugMode, no realtime listener)',
+      (
+    tester,
+  ) async {
+    final snoozeStore = FlUpdaterSnoozeStore();
+    await snoozeStore.snooze('2.0.0', const Duration(days: 3));
+    expect(await snoozeStore.isSnoozed('2.0.0'), isTrue);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) => FlUpdaterWrapper(
+          enabled: false,
+          clearSnoozeInDebugMode: true,
+          remoteConfigService: mockRemoteConfigService,
+          snoozeStore: snoozeStore,
+          child: child!,
+        ),
+        home: const Scaffold(body: Text('child content')),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // enabled takes first precedence: the wrapper never even calls into
+    // RemoteConfigService.checkForUpdate, so clearSnoozeInDebugMode's
+    // pre-clear (which runs before that call) never happens either, and
+    // the real-time listener is never set up.
+    expect(await snoozeStore.isSnoozed('2.0.0'), isTrue);
+    expect(find.byType(AlertDialog), findsNothing);
+    verifyNever(() => mockRemoteConfigService.checkForUpdate(
+          snoozeDuration: any(named: 'snoozeDuration'),
+          minimumFetchInterval: any(named: 'minimumFetchInterval'),
+          enabled: any(named: 'enabled'),
+          enableLogging: any(named: 'enableLogging'),
+          iosAppId: any(named: 'iosAppId'),
+          androidPackageId: any(named: 'androidPackageId'),
+        ));
+    verifyNever(() => mockRemoteConfigService.listenForUpdates(
+          any(),
+          enableLogging: any(named: 'enableLogging'),
+        ));
+  });
+
+  testWidgets(
+      'toggling enabled to false at runtime tears down the active realtime listener',
+      (
+    tester,
+  ) async {
+    final controller = StreamController<RemoteConfigUpdate>.broadcast();
+    addTearDown(controller.close);
+
+    when(() => mockRemoteConfigService.listenForUpdates(
+          any(),
+          enableLogging: any(named: 'enableLogging'),
+        )).thenAnswer((invocation) => controller.stream.listen((_) {}));
+    when(() => mockRemoteConfigService.checkForUpdate(
+          snoozeDuration: any(named: 'snoozeDuration'),
+          minimumFetchInterval: any(named: 'minimumFetchInterval'),
+          enabled: any(named: 'enabled'),
+          enableLogging: any(named: 'enableLogging'),
+          iosAppId: any(named: 'iosAppId'),
+          androidPackageId: any(named: 'androidPackageId'),
+        )).thenAnswer((_) async => const UpdateInfo(
+          currentVersion: '1.0.0',
+          latestVersion: '1.0.0',
+          status: UpdateStatus.none,
+        ));
+
+    var enabled = true;
+    late StateSetter setState;
+
+    await tester.pumpWidget(
+      StatefulBuilder(
+        builder: (context, setter) {
+          setState = setter;
+          return MaterialApp(
+            builder: (context, child) => FlUpdaterWrapper(
+              enabled: enabled,
+              remoteConfigService: mockRemoteConfigService,
+              child: child!,
+            ),
+            home: const Scaffold(body: Text('child content')),
+          );
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(controller.hasListener, isTrue);
+
+    setState(() => enabled = false);
+    await tester.pumpAndSettle();
+
+    expect(controller.hasListener, isFalse);
   });
 
   testWidgets(
@@ -244,7 +340,7 @@ void main() {
     when(() => mockRemoteConfigService.checkForUpdate(
           snoozeDuration: any(named: 'snoozeDuration'),
           minimumFetchInterval: any(named: 'minimumFetchInterval'),
-          enableInDebugMode: any(named: 'enableInDebugMode'),
+          enabled: any(named: 'enabled'),
           clearSnoozeInDebugMode: any(named: 'clearSnoozeInDebugMode'),
           enableLogging: any(named: 'enableLogging'),
           iosAppId: any(named: 'iosAppId'),
@@ -273,7 +369,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         builder: (context, child) => FlUpdaterWrapper(
-          enableInDebugMode: true,
+          enabled: true,
           remoteConfigService: mockRemoteConfigService,
           snoozeStore: snoozeStore,
           child: child!,

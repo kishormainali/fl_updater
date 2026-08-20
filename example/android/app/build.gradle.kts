@@ -4,6 +4,13 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// AGP 9.0+ compiles Kotlin itself; applying the Kotlin Gradle plugin on top of that
+// is an error there, but it's still required to get Kotlin support on older AGP.
+val agpHasBuiltInKotlin = com.android.Version.ANDROID_GRADLE_PLUGIN_VERSION.substringBefore(".").toInt() >= 9
+if (!agpHasBuiltInKotlin) {
+    apply(plugin = "kotlin-android")
+}
+
 android {
     namespace = "com.kishormainali.fl_updater_example"
     compileSdk = flutter.compileSdkVersion
@@ -38,7 +45,7 @@ android {
     }
 }
 
-kotlin {
+extensions.configure<org.jetbrains.kotlin.gradle.dsl.KotlinAndroidProjectExtension>("kotlin") {
     compilerOptions {
         jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
     }

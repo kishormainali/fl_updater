@@ -1,3 +1,15 @@
+## 0.1.0
+
+### Breaking Changes
+* Renamed `enableInDebugMode` to `enabled` on `FlUpdaterWrapper`, `FlUpdater.checkForUpdate`, `FlUpdater.showUpdateDialog`, and `RemoteConfigService.checkForUpdate`.
+  * `enabled` is now the single global gate for *all* automatic update behavior — the initial check, real-time listening, and `clearSnoozeInDebugMode` — checked first and taking precedence over every other flag.
+  * Defaults to `!kDebugMode`, matching the previous default behavior (checks skipped in debug, run in release). Unlike the old flag, `enabled` can now also fully disable checking in release builds, not just opt into it in debug.
+  * Toggling `enabled` at runtime (e.g. via a rebuild) now dynamically tears down or re-establishes the real-time Remote Config listener.
+
+### Fixes
+* Fixed a crash — `The context used to push or pop routes from the Navigator must be that of a widget that is a descendant of a Navigator widget` — that could occur when `FlUpdaterWrapper` presented its update dialog in apps where the wrapper wasn't a strict ancestor of the app's `Navigator`. The Navigator lookup now also searches from the app's root element and always resolves to a genuine Navigator-descendant context.
+* Fixed the Android module requiring a very recent Gradle/AGP/Kotlin toolchain (`Minimum supported Gradle version is 9.3.1`), which broke builds on older but still current Gradle installs. Lowered the pinned Android Gradle Plugin and Kotlin versions and made Kotlin plugin application AGP-version-aware, so the module now builds correctly across both older and newer Android toolchains.
+
 ## 0.0.2
 
 Release of `fl_updater`, a lightweight, cost-conscious Flutter plugin for Firebase Remote Config-driven app updates.

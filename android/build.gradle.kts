@@ -2,14 +2,14 @@ group = "com.kishormainali.fl_updater"
 version = "1.0-SNAPSHOT"
 
 buildscript {
-    val kotlinVersion = "2.4.0"
+    val kotlinVersion = "2.3.0"
     repositories {
         google()
         mavenCentral()
     }
 
     dependencies {
-        classpath("com.android.tools.build:gradle:9.1.0")
+        classpath("com.android.tools.build:gradle:8.13.1")
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion")
     }
 }
@@ -23,6 +23,13 @@ allprojects {
 
 plugins {
     id("com.android.library")
+}
+
+// AGP 9.0+ compiles Kotlin itself; applying the Kotlin Gradle plugin on top of that
+// is an error there, but it's still required to get Kotlin support on older AGP.
+val agpHasBuiltInKotlin = com.android.Version.ANDROID_GRADLE_PLUGIN_VERSION.substringBefore(".").toInt() >= 9
+if (!agpHasBuiltInKotlin) {
+    apply(plugin = "kotlin-android")
 }
 
 android {
@@ -65,7 +72,7 @@ android {
     }
 }
 
-kotlin {
+extensions.configure<org.jetbrains.kotlin.gradle.dsl.KotlinAndroidProjectExtension>("kotlin") {
     compilerOptions {
         jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
     }

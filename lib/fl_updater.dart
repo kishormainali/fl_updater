@@ -5,6 +5,7 @@ library;
 
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'src/models/update_info.model.dart';
@@ -71,16 +72,18 @@ class FlUpdater {
   ///
   /// - [snoozeDuration]: How long a soft update remains snoozed when dismissed.
   /// - [minimumFetchInterval]: Throttling duration for Remote Config fetches.
-  /// - [enableInDebugMode]: Whether to execute Remote Config checks in debug mode
-  ///   (defaults to `false` to avoid unintended fetches during local development).
+  /// - [enabled]: Global gate for the check. Defaults to `!kDebugMode` to avoid
+  ///   unintended fetches during local development; pass `true` explicitly to
+  ///   test in debug mode, or `false` to disable checking entirely.
   /// - [clearSnoozeInDebugMode]: Whether to clear any stored snooze state when running in debug mode.
+  ///   Only takes effect when [enabled] is also `true`.
   /// - [enableLogging]: Whether to emit diagnostic logs for this check.
   /// - [iosAppId]: The Apple App Store numeric ID (e.g. `'123456789'`).
   /// - [androidPackageId]: The Google Play Store package name (defaults to host app's package name if omitted).
   Future<UpdateInfo> checkForUpdate({
     Duration snoozeDuration = const Duration(days: 3),
     Duration minimumFetchInterval = const Duration(hours: 1),
-    bool enableInDebugMode = false,
+    bool enabled = !kDebugMode,
     bool clearSnoozeInDebugMode = false,
     bool? enableLogging,
     String? iosAppId,
@@ -89,7 +92,7 @@ class FlUpdater {
     return _remoteConfigService.checkForUpdate(
       snoozeDuration: snoozeDuration,
       minimumFetchInterval: minimumFetchInterval,
-      enableInDebugMode: enableInDebugMode,
+      enabled: enabled,
       clearSnoozeInDebugMode: clearSnoozeInDebugMode,
       enableLogging: enableLogging ?? _enableLogging,
       iosAppId: iosAppId,
@@ -118,7 +121,7 @@ class FlUpdater {
     FlUpdaterDialogStyle? style,
     Duration snoozeDuration = const Duration(days: 3),
     Duration minimumFetchInterval = const Duration(hours: 1),
-    bool enableInDebugMode = false,
+    bool enabled = !kDebugMode,
     bool clearSnoozeInDebugMode = false,
     bool? enableLogging,
   }) async {
@@ -127,7 +130,7 @@ class FlUpdater {
         await checkForUpdate(
           snoozeDuration: snoozeDuration,
           minimumFetchInterval: minimumFetchInterval,
-          enableInDebugMode: enableInDebugMode,
+          enabled: enabled,
           clearSnoozeInDebugMode: clearSnoozeInDebugMode,
           enableLogging: resolvedLogging,
           iosAppId: iosAppId,

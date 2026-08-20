@@ -35,9 +35,10 @@ class ExampleApp extends StatelessWidget {
       builder: (context, child) => FlUpdaterWrapper(
         iosAppId: _iosAppId,
         androidPackageId: _androidPackageId,
-        // enableInDebugMode is true here for example/testing purposes.
-        // In production apps, leave this false to avoid consuming Remote Config quota during development.
-        enableInDebugMode: true,
+        // enabled is forced to true here for example/testing purposes.
+        // In production apps, omit this (it defaults to !kDebugMode) so debug
+        // builds don't consume Remote Config quota during development.
+        enabled: true,
         enableLogging: true,
         child: child!,
       ),
@@ -64,7 +65,7 @@ class _HomePageState extends State<HomePage> {
       final info = await _updater.checkForUpdate(
         iosAppId: _iosAppId,
         androidPackageId: _androidPackageId,
-        enableInDebugMode: true,
+        enabled: true,
       );
       setState(() => _lastCheckedInfo = info);
       if (mounted) {
@@ -73,7 +74,7 @@ class _HomePageState extends State<HomePage> {
           info: info,
           iosAppId: _iosAppId,
           androidPackageId: _androidPackageId,
-          enableInDebugMode: true,
+          enabled: true,
         );
       }
     } finally {
@@ -88,7 +89,7 @@ class _HomePageState extends State<HomePage> {
       context,
       iosAppId: _iosAppId,
       androidPackageId: _androidPackageId,
-      enableInDebugMode: true,
+      enabled: true,
       title: '🚀 Major Update Available!',
       message:
           'A brand-new version is ready with exciting features and enhancements.',
@@ -114,7 +115,7 @@ class _HomePageState extends State<HomePage> {
       context,
       iosAppId: _iosAppId,
       androidPackageId: _androidPackageId,
-      enableInDebugMode: true,
+      enabled: true,
       dialogBuilder: (dialogContext, info, onUpdate, onLater) {
         final isForce = info.status == UpdateStatus.force;
         return AlertDialog(
