@@ -20,9 +20,10 @@ The example app is configured to fail open gracefully if Firebase is not connect
    ```bash
    flutterfire configure
    ```
-3. Add the following Remote Config keys:
-   - `fl_updater_latest_version`: e.g. `"2.0.0"`
-   - `fl_updater_min_version`: e.g. `"1.5.0"` (or leave empty for soft updates)
+3. Add a `fl_updater_config` String parameter with a JSON value, e.g.:
+   ```json
+   {"latest_version": "2.0.0", "min_version": "1.5.0"}
+   ```
 4. Publish changes in the Firebase Remote Config console.
 
 ### 2. Run the Example

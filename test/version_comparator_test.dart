@@ -68,5 +68,54 @@ void main() {
       );
       expect(status, UpdateStatus.none);
     });
+
+    test('returns none when current and latest have the same version+build',
+        () {
+      final status = VersionComparator.compare(
+        currentVersion: '1.0.0+10',
+        latestVersion: '1.0.0+10',
+        minVersion: '0.0.0',
+      );
+      expect(status, UpdateStatus.none);
+    });
+
+    test(
+        'returns soft when only the build number is newer for an equal semantic version',
+        () {
+      final status = VersionComparator.compare(
+        currentVersion: '1.0.0+9',
+        latestVersion: '1.0.0+10',
+        minVersion: '0.0.0',
+      );
+      expect(status, UpdateStatus.soft);
+    });
+
+    test('returns force when only the build number is below min', () {
+      final status = VersionComparator.compare(
+        currentVersion: '1.0.0+5',
+        latestVersion: '1.0.0+10',
+        minVersion: '1.0.0+10',
+      );
+      expect(status, UpdateStatus.force);
+    });
+
+    test('semantic version segments still take precedence over build number',
+        () {
+      final status = VersionComparator.compare(
+        currentVersion: '1.0.0+999',
+        latestVersion: '1.1.0+1',
+        minVersion: '0.0.0',
+      );
+      expect(status, UpdateStatus.soft); // 1.1.0 > 1.0.0 regardless of build
+    });
+
+    test('treats a missing build number as build 0', () {
+      final status = VersionComparator.compare(
+        currentVersion: '1.0.0',
+        latestVersion: '1.0.0+1',
+        minVersion: '0.0.0',
+      );
+      expect(status, UpdateStatus.soft);
+    });
   });
 }

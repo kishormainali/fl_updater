@@ -14,7 +14,7 @@ A lightweight, cost-conscious Flutter plugin for **Firebase Remote Config-driven
 - ⚡ **Imperative API**: Use `FlUpdater().checkForUpdate()` or `FlUpdater().showUpdateDialog()` for manual checks (e.g. from a settings screen).
 - 🔄 **Soft & Force Updates**:
   - **Soft updates**: Optional update prompt with a "Later" button.
-  - **Force updates**: Mandatory blocking dialog (`canPop: false`) when the installed version is below `fl_updater_min_version`.
+  - **Force updates**: Mandatory blocking dialog (`canPop: false`) when the installed version is below `min_version`.
 - ⏰ **Smart Snoozing**: Dismissing a soft update snoozes it for a configurable duration (default: 3 days). Snooze is scoped per version, so releasing a newer update immediately prompts the user again.
 - 💰 **Cost-Conscious Architecture**: Designed for Firebase Remote Config usage-based pricing:
   - **Debug mode disabled by default**: Prevents development hot restarts from consuming Remote Config quotas.
@@ -53,35 +53,75 @@ Future<void> main() async {
 
 ## 🔧 Firebase Remote Config Setup
 
-`fl_updater` reads two String parameters from **Firebase Console → Build → Remote Config**. This section walks through setting them up from scratch, plus an optional platform-targeting layer.
+`fl_updater` reads a single JSON-structured String parameter, `fl_updater_config`, from **Firebase Console → Build → Remote Config**. This section walks through setting it up from scratch, plus optional platform- and flavor-targeting layers.
 
-> In-app update prompts only make sense for the build that's actually published to the App Store / Play Store — a dev/staging/internal build isn't distributed there, so there's nothing for it to "update" to. This guide is written with that in mind: one Firebase project, one production app, no build-flavor or white-label targeting.
+> In-app update prompts only make sense for the build that's actually published to the App Store / Play Store — a dev/staging/internal build isn't distributed there, so there's nothing for it to "update" to. This guide is written with that in mind: one Firebase project, one production app. If you register multiple apps (one per build flavor) under the same Firebase project, see "Step 2 — (Optional) Different values per flavor and/or platform" below for targeting a specific one.
 
-### Step 1 — Create the parameters
+### Step 1 — Create the parameter
 
 Go to **Build → Remote Config**. If this is the project's first Remote Config parameter, click **Create configuration**; otherwise click **Add parameter**.
 
-Create both of these:
+Create a String parameter named `fl_updater_config` with a JSON object as its default value:
 
-| Parameter key | Type | Default value | Description |
-| :--- | :--- | :--- | :--- |
-| `fl_updater_latest_version` | String | `1.0.0` (your current release) | The latest published version available in stores. |
-| `fl_updater_min_version` | String | `1.0.0` (or lower) | The minimum supported version. Installs below this get a non-dismissible force update. |
+```json
+{
+  "latest_version": "1.0.0",
+  "min_version": "1.0.0"
+}
+```
 
-Click **Publish changes** (top right) once both are created. At this point every install of your app sees the same two values — no targeting yet.
+- `latest_version`: the latest published version available in stores.
+- `min_version`: the minimum supported version. Installs below this get a non-dismissible force update.
 
-### Step 2 — (Optional) Different values per platform
+Both accept plain semantic versions (`1.0.0`) or a version with a build-number suffix (`1.0.0+10`, matching `pubspec.yaml`'s `version:` field) — the build number is compared too whenever the semantic version alone is a tie.
 
-Skip this step if Android and iOS should always see the same version numbers.
+Click **Publish changes**. At this point every install of your app sees the same JSON value — no targeting yet.
 
-1. In the Remote Config page, click **Add condition** (or **+ Add value for condition** from a parameter's row — same dialog either way).
-2. **Name**: `fl_updater_android` — **Applies if...**: **Platform** → **Android**. Pick any tag color (cosmetic). Click **Create condition**.
-3. Repeat for **`fl_updater_ios`** with **Platform** → **iOS**.
-4. Open `fl_updater_latest_version`, click **Add new value**, select `fl_updater_android`, enter its version (e.g. `2.5.0`). Repeat for `fl_updater_ios`.
-5. Do the same on `fl_updater_min_version`.
-6. **Publish changes.**
+### Step 2 — (Optional) Different values per flavor and/or platform
 
-Any device matching neither condition (e.g. web, or a platform you haven't configured) falls back to the parameter's default value.
+Skip this step if every install should see the same version numbers.
+
+Nest `flavors` and/or `platforms` objects inside `fl_updater_config` — no separate Remote Config condition needed:
+
+```json
+{
+  "latest_version": "1.0.0",
+  "min_version": "1.0.0",
+  "flavors": {
+    "development": { "latest_version": "1.2.0", "min_version": "1.0.0" },
+    "staging": { "latest_version": "1.1.0", "min_version": "1.0.0" },
+    "uat": { "latest_version": "1.1.0", "min_version": "1.0.0" },
+    "production": { "latest_version": "1.0.0", "min_version": "1.0.0" }
+  },
+  "platforms": {
+    "android": {
+      "latest_version": "1.0.1",
+      "min_version": "1.0.0",
+      "flavors": {
+        "development": { "latest_version": "1.2.1", "min_version": "1.0.0" }
+      }
+    },
+    "ios": {
+      "latest_version": "1.0.0",
+      "min_version": "1.0.0"
+    }
+  }
+}
+```
+
+- **`flavors`**: for apps registered per build flavor under the same Firebase project (`development`, `staging`, `uat`, `production`, ...), each with its own `google-services.json` / `GoogleService-Info.plist`.
+- **`platforms`**: for different version numbers per platform (`android` / `ios`) — an alternative to Remote Config conditions that lives entirely in this one parameter. Each platform entry can itself nest its own `flavors` object.
+
+Every one of these objects, and every field within them, is optional — set only what actually diverges from the shared default. `latest_version` and `min_version` are each resolved **independently**, most specific first:
+
+1. `platforms.<platform>.flavors.<flavor>.<field>`
+2. `platforms.<platform>.<field>`
+3. `flavors.<flavor>.<field>`
+4. the top-level `<field>`
+
+Publish changes once you've added the values you need.
+
+In code, `fl_updater` reads the flavor and platform automatically — flavor from Flutter's built-in `appFlavor` (the value passed to `flutter run/build --flavor <name>`), platform from the running device — so nothing needs to be configured. Pass `flavor:` / `platform:` explicitly to `FlUpdaterWrapper` / the imperative API only if you want to override either.
 
 ### Step 3 — Configure store redirection identifiers (in code, not console)
 
@@ -91,7 +131,7 @@ Not part of Remote Config — pass these directly to `FlUpdaterWrapper` / the im
 
 ### Step 4 — Verify it worked
 
-- Run the app with `enableLogging: true` (see "🪵 Diagnostic Logging" below) and look for the `Fetched remote config values: {...}` log line to confirm the values `fl_updater` actually received.
+- Run the app with `enableLogging: true` (see "🪵 Diagnostic Logging" below) and look for the `Fetched remote config value (fl_updater_config): {...}` log line to confirm the JSON `fl_updater` actually received.
 - Pass `enabled: true` while testing — it defaults to `!kDebugMode`, so debug builds skip fetching entirely otherwise (see "💰 Fetch Behavior & Quota Optimization" below).
 - Remote Config itself throttles fetches via `minimumFetchInterval` (default 1 hour) — repeated test runs within that window reuse the previous fetch. Lower it temporarily while iterating if a fresh publish doesn't seem to take effect.
 
@@ -278,7 +318,7 @@ To safeguard your Firebase Remote Config quota and avoid unintended billing:
 
 `fl_updater` listens to Firebase Remote Config updates in real time via `onConfigUpdated`:
 
-- When you publish changes to `fl_updater_latest_version` or `fl_updater_min_version` in the Firebase Console, the new config is activated **immediately**.
+- When you publish changes to `fl_updater_config` in the Firebase Console, the new config is activated **immediately**.
 - The update status is evaluated without waiting for `minimumFetchInterval` to expire.
 - Active snoozes are automatically cleared so users are prompted for the newly published version right away.
 - If the new version requires an update, the update dialog appears instantly for active users.

@@ -169,9 +169,9 @@ class _HomePageState extends State<HomePage> {
                     ),
                     SizedBox(height: 8),
                     Text(
-                      'Set the following keys in your Firebase Remote Config Console:\n'
-                      '• fl_updater_latest_version (e.g. "2.0.0")\n'
-                      '• fl_updater_min_version (e.g. "1.5.0")',
+                      'Set a fl_updater_config String parameter in your Firebase '
+                      'Remote Config Console with a JSON value, e.g.:\n'
+                      '{"latest_version": "2.0.0", "min_version": "1.5.0"}',
                       style: TextStyle(fontSize: 13),
                     ),
                   ],

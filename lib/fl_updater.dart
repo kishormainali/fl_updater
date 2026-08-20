@@ -7,6 +7,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show appFlavor;
 
 import 'src/models/update_info.model.dart';
 import 'src/services/remote_config_service.dart';
@@ -80,6 +81,11 @@ class FlUpdater {
   /// - [enableLogging]: Whether to emit diagnostic logs for this check.
   /// - [iosAppId]: The Apple App Store numeric ID (e.g. `'123456789'`).
   /// - [androidPackageId]: The Google Play Store package name (defaults to host app's package name if omitted).
+  /// - [flavor]: The build flavor to scope the `fl_updater_config` parameter to.
+  ///   Defaults to Flutter's built-in [appFlavor]. See [FlUpdaterWrapper.platform]
+  ///   for the JSON schema this looks up and how [flavor] and [platform] combine.
+  /// - [platform]: The platform to scope the `fl_updater_config` parameter to.
+  ///   Defaults to the current platform (`'android'` / `'ios'`).
   Future<UpdateInfo> checkForUpdate({
     Duration snoozeDuration = const Duration(days: 3),
     Duration minimumFetchInterval = const Duration(hours: 1),
@@ -88,6 +94,8 @@ class FlUpdater {
     bool? enableLogging,
     String? iosAppId,
     String? androidPackageId,
+    String? flavor = appFlavor,
+    String? platform,
   }) {
     return _remoteConfigService.checkForUpdate(
       snoozeDuration: snoozeDuration,
@@ -97,6 +105,8 @@ class FlUpdater {
       enableLogging: enableLogging ?? _enableLogging,
       iosAppId: iosAppId,
       androidPackageId: androidPackageId,
+      flavor: flavor,
+      platform: platform,
     );
   }
 
@@ -112,6 +122,8 @@ class FlUpdater {
     UpdateInfo? info,
     String? iosAppId,
     String? androidPackageId,
+    String? flavor = appFlavor,
+    String? platform,
     GlobalKey<NavigatorState>? navigatorKey,
     FlUpdaterDialogBuilder? dialogBuilder,
     String? title,
@@ -135,6 +147,8 @@ class FlUpdater {
           enableLogging: resolvedLogging,
           iosAppId: iosAppId,
           androidPackageId: androidPackageId,
+          flavor: flavor,
+          platform: platform,
         );
     if (!context.mounted) return;
     await presentUpdateDialog(
@@ -155,8 +169,8 @@ class FlUpdater {
 
   /// Listens to real-time Firebase Remote Config changes.
   ///
-  /// When `fl_updater_latest_version` or `fl_updater_min_version` is published in the
-  /// Firebase Console, activates the updated config and invokes [onConfigUpdated].
+  /// When the `fl_updater_config` parameter is published in the Firebase
+  /// Console, activates the updated config and invokes [onConfigUpdated].
   StreamSubscription<dynamic>? listenForUpdates(
     Future<void> Function() onConfigUpdated, {
     bool? enableLogging,

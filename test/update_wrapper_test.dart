@@ -75,6 +75,8 @@ void main() {
           enabled: any(named: 'enabled'),
           iosAppId: any(named: 'iosAppId'),
           androidPackageId: any(named: 'androidPackageId'),
+          flavor: any(named: 'flavor'),
+          platform: any(named: 'platform'),
         )).thenAnswer((_) async => const UpdateInfo(
           currentVersion: '1.0.0',
           latestVersion: '2.0.0',
@@ -122,6 +124,8 @@ void main() {
           enabled: any(named: 'enabled'),
           iosAppId: any(named: 'iosAppId'),
           androidPackageId: any(named: 'androidPackageId'),
+          flavor: any(named: 'flavor'),
+          platform: any(named: 'platform'),
         )).thenAnswer((_) async => const UpdateInfo(
           currentVersion: '1.0.0',
           latestVersion: '2.0.0',
@@ -160,6 +164,8 @@ void main() {
           enabled: any(named: 'enabled'),
           iosAppId: any(named: 'iosAppId'),
           androidPackageId: any(named: 'androidPackageId'),
+          flavor: any(named: 'flavor'),
+          platform: any(named: 'platform'),
         )).thenAnswer((_) async => const UpdateInfo(
           currentVersion: '1.0.0',
           latestVersion: '2.0.0',
@@ -202,6 +208,8 @@ void main() {
           enableLogging: any(named: 'enableLogging'),
           iosAppId: any(named: 'iosAppId'),
           androidPackageId: any(named: 'androidPackageId'),
+          flavor: any(named: 'flavor'),
+          platform: any(named: 'platform'),
         )).thenAnswer((_) async => const UpdateInfo(
           currentVersion: '1.0.0',
           latestVersion: '2.0.0',
@@ -262,6 +270,8 @@ void main() {
           enableLogging: any(named: 'enableLogging'),
           iosAppId: any(named: 'iosAppId'),
           androidPackageId: any(named: 'androidPackageId'),
+          flavor: any(named: 'flavor'),
+          platform: any(named: 'platform'),
         ));
     verifyNever(() => mockRemoteConfigService.listenForUpdates(
           any(),
@@ -288,6 +298,8 @@ void main() {
           enableLogging: any(named: 'enableLogging'),
           iosAppId: any(named: 'iosAppId'),
           androidPackageId: any(named: 'androidPackageId'),
+          flavor: any(named: 'flavor'),
+          platform: any(named: 'platform'),
         )).thenAnswer((_) async => const UpdateInfo(
           currentVersion: '1.0.0',
           latestVersion: '1.0.0',
@@ -345,6 +357,8 @@ void main() {
           enableLogging: any(named: 'enableLogging'),
           iosAppId: any(named: 'iosAppId'),
           androidPackageId: any(named: 'androidPackageId'),
+          flavor: any(named: 'flavor'),
+          platform: any(named: 'platform'),
         )).thenAnswer((_) async => const UpdateInfo(
           currentVersion: '1.0.0',
           latestVersion: '1.0.0',
@@ -358,6 +372,8 @@ void main() {
     when(() => mockRemoteConfigService.evaluateActiveConfig(
           iosAppId: any(named: 'iosAppId'),
           androidPackageId: any(named: 'androidPackageId'),
+          flavor: any(named: 'flavor'),
+          platform: any(named: 'platform'),
           clearSnooze: any(named: 'clearSnooze'),
           enableLogging: any(named: 'enableLogging'),
         )).thenAnswer((_) async => const UpdateInfo(
@@ -394,6 +410,8 @@ void main() {
     verify(() => mockRemoteConfigService.evaluateActiveConfig(
           iosAppId: any(named: 'iosAppId'),
           androidPackageId: any(named: 'androidPackageId'),
+          flavor: any(named: 'flavor'),
+          platform: any(named: 'platform'),
           clearSnooze: true,
           enableLogging: any(named: 'enableLogging'),
         )).called(1);

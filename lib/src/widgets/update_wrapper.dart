@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show appFlavor;
 
 import '../models/update_status.dart';
 import '../services/remote_config_service.dart';
@@ -34,6 +35,8 @@ class FlUpdaterWrapper extends StatefulWidget {
     this.navigatorKey,
     this.iosAppId,
     this.androidPackageId,
+    this.flavor = appFlavor,
+    this.platform,
     this.dialogBuilder,
     this.title,
     this.message,
@@ -69,6 +72,51 @@ class FlUpdaterWrapper extends StatefulWidget {
   ///
   /// Defaults to the host application's package name if omitted.
   final String? androidPackageId;
+
+  /// The build flavor to scope the `fl_updater_config` Remote Config parameter to,
+  /// e.g. `'staging'`.
+  ///
+  /// The `fl_updater_config` parameter's value is a JSON object with top-level
+  /// `min_version` / `latest_version` fields and optional `flavors` / `platforms`
+  /// maps for overriding them — see [platform] for the full shape and the
+  /// resolution order between the two.
+  ///
+  /// Defaults to Flutter's built-in [appFlavor] (the value passed to `--flavor` at
+  /// build time), so most apps don't need to pass this explicitly.
+  final String? flavor;
+
+  /// The platform to scope the `fl_updater_config` Remote Config parameter to,
+  /// e.g. `'android'` or `'ios'`.
+  ///
+  /// The `fl_updater_config` parameter's value is a JSON object shaped like:
+  /// ```json
+  /// {
+  ///   "min_version": "1.0.0",
+  ///   "latest_version": "1.0.0",
+  ///   "flavors": {
+  ///     "staging": { "min_version": "1.1.0", "latest_version": "1.1.0" }
+  ///   },
+  ///   "platforms": {
+  ///     "android": {
+  ///       "min_version": "1.0.1",
+  ///       "latest_version": "1.0.1",
+  ///       "flavors": {
+  ///         "staging": { "min_version": "1.1.1", "latest_version": "1.1.1" }
+  ///       }
+  ///     }
+  ///   }
+  /// }
+  /// ```
+  /// `min_version` and `latest_version` are each resolved independently, most
+  /// specific first: `platforms[platform].flavors[flavor]`, then
+  /// `platforms[platform]`, then `flavors[flavor]`, then the top-level field.
+  /// Any of these can be omitted — a scope only needs to set the fields it
+  /// actually wants to override.
+  ///
+  /// Defaults to the current platform (`'android'` / `'ios'`, detected via
+  /// [defaultTargetPlatform]; `null` — no platform-scoped override — on other
+  /// platforms), so most apps don't need to pass this explicitly.
+  final String? platform;
 
   /// An optional custom builder to render a bespoke update UI instead of the
   /// built-in dialog.
@@ -116,8 +164,8 @@ class FlUpdaterWrapper extends StatefulWidget {
 
   /// Whether to listen to real-time Remote Config updates via [FirebaseRemoteConfig.onConfigUpdated].
   ///
-  /// When `true`, whenever `fl_updater_latest_version` or `fl_updater_min_version` is updated
-  /// in the Firebase Console, the new config is activated and evaluated immediately
+  /// When `true`, whenever the `fl_updater_config` parameter is updated in the
+  /// Firebase Console, the new config is activated and evaluated immediately
   /// without waiting for [minimumFetchInterval]. Defaults to `true`.
   final bool listenForRealtimeUpdates;
 
@@ -173,10 +221,6 @@ class _FlUpdaterWrapperState extends State<FlUpdaterWrapper> {
     _realtimeSubscription?.cancel();
     _realtimeSubscription = _remoteConfigService.listenForUpdates(
       () async {
-        FlUpdaterLogger.log(
-          'Real-time Remote Config signal received: evaluating update status immediately.',
-          enableLogging: widget.enableLogging,
-        );
         if (mounted) {
           await _checkForUpdate(fromRealtime: true);
         }
@@ -244,6 +288,8 @@ class _FlUpdaterWrapperState extends State<FlUpdaterWrapper> {
             androidPackageId: widget.androidPackageId,
             clearSnooze: true,
             enableLogging: widget.enableLogging,
+            flavor: widget.flavor,
+            platform: widget.platform,
           )
         : await _remoteConfigService.checkForUpdate(
             snoozeDuration: widget.snoozeDuration,
@@ -252,6 +298,8 @@ class _FlUpdaterWrapperState extends State<FlUpdaterWrapper> {
             enableLogging: widget.enableLogging,
             iosAppId: widget.iosAppId,
             androidPackageId: widget.androidPackageId,
+            flavor: widget.flavor,
+            platform: widget.platform,
           );
 
     if (!mounted) return;

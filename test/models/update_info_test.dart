@@ -1,16 +1,12 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fl_updater/src/models/update_info.model.dart';
 import 'package:fl_updater/src/models/update_status.dart';
 
 void main() {
-  group('UpdateInfo.fromRemoteConfigValues', () {
+  group('UpdateInfo.fromRemoteConfigJson', () {
     test('returns status none when current equals latest', () {
-      final info = UpdateInfo.fromRemoteConfigValues(
-        values: const {
-          'fl_updater_latest_version': '1.0.0',
-          'fl_updater_min_version': '0.0.0',
-        },
+      final info = UpdateInfo.fromRemoteConfigJson(
+        json: '{"latest_version": "1.0.0", "min_version": "0.0.0"}',
         currentVersion: '1.0.0',
       );
 
@@ -19,11 +15,8 @@ void main() {
     });
 
     test('returns status soft when a newer version is available', () {
-      final info = UpdateInfo.fromRemoteConfigValues(
-        values: const {
-          'fl_updater_latest_version': '1.2.0',
-          'fl_updater_min_version': '0.0.0',
-        },
+      final info = UpdateInfo.fromRemoteConfigJson(
+        json: '{"latest_version": "1.2.0", "min_version": "0.0.0"}',
         currentVersion: '1.0.0',
       );
 
@@ -31,20 +24,37 @@ void main() {
     });
 
     test('returns status force when current is below min version', () {
-      final info = UpdateInfo.fromRemoteConfigValues(
-        values: const {
-          'fl_updater_latest_version': '2.0.0',
-          'fl_updater_min_version': '1.5.0',
-        },
+      final info = UpdateInfo.fromRemoteConfigJson(
+        json: '{"latest_version": "2.0.0", "min_version": "1.5.0"}',
         currentVersion: '1.0.0',
       );
 
       expect(info.status, UpdateStatus.force);
     });
 
-    test('falls back to currentVersion and 0.0.0 when keys are missing', () {
-      final info = UpdateInfo.fromRemoteConfigValues(
-        values: const {},
+    test('falls back to currentVersion and 0.0.0 when json is null', () {
+      final info = UpdateInfo.fromRemoteConfigJson(
+        json: null,
+        currentVersion: '1.0.0',
+      );
+
+      expect(info.latestVersion, '1.0.0');
+      expect(info.status, UpdateStatus.none);
+    });
+
+    test('falls back to currentVersion and 0.0.0 when json is empty', () {
+      final info = UpdateInfo.fromRemoteConfigJson(
+        json: '{}',
+        currentVersion: '1.0.0',
+      );
+
+      expect(info.latestVersion, '1.0.0');
+      expect(info.status, UpdateStatus.none);
+    });
+
+    test('falls back to currentVersion and 0.0.0 when json is malformed', () {
+      final info = UpdateInfo.fromRemoteConfigJson(
+        json: 'not valid json',
         currentVersion: '1.0.0',
       );
 
@@ -54,8 +64,8 @@ void main() {
 
     test('passes through caller-supplied iosAppId and androidPackageId as-is',
         () {
-      final info = UpdateInfo.fromRemoteConfigValues(
-        values: const {'fl_updater_latest_version': '1.0.0'},
+      final info = UpdateInfo.fromRemoteConfigJson(
+        json: '{"latest_version": "1.0.0"}',
         currentVersion: '1.0.0',
         iosAppId: '123456789',
         androidPackageId: 'com.example.app',
@@ -66,8 +76,8 @@ void main() {
     });
 
     test('iosAppId and androidPackageId default to null when omitted', () {
-      final info = UpdateInfo.fromRemoteConfigValues(
-        values: const {'fl_updater_latest_version': '1.0.0'},
+      final info = UpdateInfo.fromRemoteConfigJson(
+        json: '{"latest_version": "1.0.0"}',
         currentVersion: '1.0.0',
       );
 
@@ -76,8 +86,8 @@ void main() {
     });
 
     test('treats caller-supplied empty string ids as null', () {
-      final info = UpdateInfo.fromRemoteConfigValues(
-        values: const {'fl_updater_latest_version': '1.0.0'},
+      final info = UpdateInfo.fromRemoteConfigJson(
+        json: '{"latest_version": "1.0.0"}',
         currentVersion: '1.0.0',
         iosAppId: '',
         androidPackageId: '',
@@ -87,13 +97,9 @@ void main() {
       expect(info.androidPackageId, isNull);
     });
 
-    test('parses fl_updater_latest_version and fl_updater_min_version values',
-        () {
-      final info = UpdateInfo.fromRemoteConfigValues(
-        values: const {
-          'fl_updater_latest_version': '2.5.0',
-          'fl_updater_min_version': '2.0.0',
-        },
+    test('parses top-level latest_version and min_version fields', () {
+      final info = UpdateInfo.fromRemoteConfigJson(
+        json: '{"latest_version": "2.5.0", "min_version": "2.0.0"}',
         currentVersion: '1.8.0',
         androidPackageId: 'com.example.android',
       );
@@ -103,127 +109,321 @@ void main() {
       expect(info.androidPackageId, 'com.example.android');
     });
 
-    test('parses fl_updater_latest_version with soft update status', () {
-      final info = UpdateInfo.fromRemoteConfigValues(
-        values: const {
-          'fl_updater_latest_version': '3.0.0',
-          'fl_updater_min_version': '2.8.0',
-        },
+    test('uses the flavor entry when it fully overrides both fields', () {
+      const json = '''
+      {
+        "latest_version": "1.0.0",
+        "min_version": "1.0.0",
+        "flavors": {
+          "staging": {"latest_version": "3.0.0", "min_version": "2.8.0"}
+        }
+      }
+      ''';
+
+      final info = UpdateInfo.fromRemoteConfigJson(
+        json: json,
         currentVersion: '2.9.0',
-        iosAppId: '123456789',
+        flavor: 'staging',
       );
 
       expect(info.latestVersion, '3.0.0');
       expect(info.status, UpdateStatus.soft); // 2.9.0 >= 2.8.0 but < 3.0.0
-      expect(info.iosAppId, '123456789');
     });
 
     test(
-        'parses Firebase Console exported template JSON with conditions and conditionalValues',
+        'falls back per-field to the top-level value when the flavor entry only overrides one field',
+        () {
+      const json = '''
+      {
+        "latest_version": "1.0.0",
+        "min_version": "5.0.0",
+        "flavors": {
+          "staging": {"latest_version": "9.9.9"}
+        }
+      }
+      ''';
+
+      final info = UpdateInfo.fromRemoteConfigJson(
+        json: json,
+        currentVersion: '1.0.0',
+        flavor: 'staging',
+      );
+
+      // latest_version comes from the flavor entry...
+      expect(info.latestVersion, '9.9.9');
+      // ...but min_version isn't in the flavor entry, so it falls back to
+      // the top-level 5.0.0, forcing an update.
+      expect(info.status, UpdateStatus.force);
+    });
+
+    test('falls back to top-level values when flavor has no matching entry',
+        () {
+      const json = '''
+      {
+        "latest_version": "1.2.0",
+        "min_version": "0.0.0",
+        "flavors": {
+          "staging": {"latest_version": "9.9.9"}
+        }
+      }
+      ''';
+
+      final info = UpdateInfo.fromRemoteConfigJson(
+        json: json,
+        currentVersion: '1.0.0',
+        flavor: 'production',
+      );
+
+      expect(info.latestVersion, '1.2.0');
+      expect(info.status, UpdateStatus.soft);
+    });
+
+    test('falls back to top-level values when flavor is null', () {
+      const json = '''
+      {
+        "latest_version": "1.2.0",
+        "min_version": "0.0.0",
+        "flavors": {
+          "staging": {"latest_version": "9.9.9"}
+        }
+      }
+      ''';
+
+      final info = UpdateInfo.fromRemoteConfigJson(
+        json: json,
+        currentVersion: '1.0.0',
+      );
+
+      expect(info.latestVersion, '1.2.0');
+    });
+
+    test('uses the platform entry when one matches', () {
+      const json = '''
+      {
+        "latest_version": "1.0.0",
+        "min_version": "1.0.0",
+        "platforms": {
+          "android": {"latest_version": "2.0.0", "min_version": "1.5.0"}
+        }
+      }
+      ''';
+
+      final info = UpdateInfo.fromRemoteConfigJson(
+        json: json,
+        currentVersion: '1.0.0',
+        platform: 'android',
+      );
+
+      expect(info.latestVersion, '2.0.0');
+      expect(info.status, UpdateStatus.force); // 1.0.0 < min 1.5.0
+    });
+
+    test('falls back to top-level values when platform has no matching entry',
+        () {
+      const json = '''
+      {
+        "latest_version": "1.2.0",
+        "min_version": "0.0.0",
+        "platforms": {
+          "android": {"latest_version": "9.9.9"}
+        }
+      }
+      ''';
+
+      final info = UpdateInfo.fromRemoteConfigJson(
+        json: json,
+        currentVersion: '1.0.0',
+        platform: 'ios',
+      );
+
+      expect(info.latestVersion, '1.2.0');
+    });
+
+    test(
+        'the platform+flavor combo takes precedence over platform-only, flavor-only, and top-level',
+        () {
+      const json = '''
+      {
+        "latest_version": "0.0.0",
+        "min_version": "0.0.0",
+        "flavors": {
+          "staging": {"latest_version": "1.0.0"}
+        },
+        "platforms": {
+          "android": {
+            "latest_version": "2.0.0",
+            "flavors": {
+              "staging": {"latest_version": "3.0.0"}
+            }
+          }
+        }
+      }
+      ''';
+
+      final info = UpdateInfo.fromRemoteConfigJson(
+        json: json,
+        currentVersion: '1.0.0',
+        flavor: 'staging',
+        platform: 'android',
+      );
+
+      expect(info.latestVersion, '3.0.0');
+    });
+
+    test(
+        'falls back to the platform-only value when the platform has no matching flavor entry',
+        () {
+      const json = '''
+      {
+        "latest_version": "0.0.0",
+        "flavors": {
+          "staging": {"latest_version": "1.0.0"}
+        },
+        "platforms": {
+          "android": {"latest_version": "2.0.0"}
+        }
+      }
+      ''';
+
+      final info = UpdateInfo.fromRemoteConfigJson(
+        json: json,
+        currentVersion: '1.0.0',
+        flavor: 'staging',
+        platform: 'android',
+      );
+
+      // platforms.android has no "flavors.staging" entry, and platforms.android
+      // itself sets latest_version, so that wins over the top-level flavors.staging.
+      expect(info.latestVersion, '2.0.0');
+    });
+
+    test(
+        'falls back to the top-level flavor value when the platform entry does not set the field',
+        () {
+      const json = '''
+      {
+        "latest_version": "0.0.0",
+        "flavors": {
+          "staging": {"latest_version": "1.0.0"}
+        },
+        "platforms": {
+          "android": {"min_version": "0.5.0"}
+        }
+      }
+      ''';
+
+      final info = UpdateInfo.fromRemoteConfigJson(
+        json: json,
+        currentVersion: '1.0.0',
+        flavor: 'staging',
+        platform: 'android',
+      );
+
+      // platforms.android doesn't set latest_version at all, so it falls
+      // through to flavors.staging.latest_version.
+      expect(info.latestVersion, '1.0.0');
+    });
+  });
+
+  group('UpdateInfo.fromTemplateJson', () {
+    test('reads the fl_updater_config parameter default value', () {
+      final template = {
+        'parameters': {
+          'fl_updater_config': {
+            'defaultValue': {
+              'value': '{"latest_version": "2.5.0", "min_version": "2.0.0"}'
+            },
+            'valueType': 'STRING'
+          }
+        }
+      };
+
+      final info = UpdateInfo.fromTemplateJson(
+        template: template,
+        currentVersion: '1.8.0',
+      );
+
+      expect(info.latestVersion, '2.5.0');
+      expect(info.status, UpdateStatus.force); // 1.8.0 < 2.0.0
+    });
+
+    test('applies the flavors fallback the same way as fromRemoteConfigJson',
         () {
       final template = {
-        'conditions': [
-          {
-            'name': 'fl_updater_android',
-            'expression': "device.os == 'android'",
-            'tagColor': 'DEEP_ORANGE'
-          },
-          {
-            'name': 'fl_updater_ios',
-            'expression': "device.os == 'ios'",
-            'tagColor': 'PINK'
-          }
-        ],
         'parameters': {
-          'fl_updater_latest_version': {
-            'defaultValue': {'value': '1.0.0'},
-            'conditionalValues': {
-              'fl_updater_android': {'value': '2.5.0'},
-              'fl_updater_ios': {'value': '2.1.0'}
-            },
-            'description': 'Latest Version of the App',
-            'valueType': 'STRING'
-          },
-          'fl_updater_min_version': {
-            'defaultValue': {'useInAppDefault': true},
-            'conditionalValues': {
-              'fl_updater_android': {'value': '2.0.0'},
-              'fl_updater_ios': {'value': '1.8.0'}
+          'fl_updater_config': {
+            'defaultValue': {
+              'value': '{"latest_version": "1.0.0", "min_version": "1.0.0", '
+                  '"flavors": {"staging": {"latest_version": "3.0.0", "min_version": "2.8.0"}}}'
             },
             'valueType': 'STRING'
           }
         }
       };
 
-      // Test Android evaluation
-      final androidInfo = UpdateInfo.fromTemplateJson(
+      final info = UpdateInfo.fromTemplateJson(
         template: template,
-        currentVersion: '1.9.0',
-        platform: TargetPlatform.android,
+        currentVersion: '2.9.0',
+        flavor: 'staging',
       );
-      expect(androidInfo.latestVersion, '2.5.0');
-      expect(androidInfo.status, UpdateStatus.force); // 1.9.0 < 2.0.0
 
-      // Test iOS evaluation
-      final iosInfo = UpdateInfo.fromTemplateJson(
+      expect(info.latestVersion, '3.0.0');
+      expect(info.status, UpdateStatus.soft);
+    });
+
+    test('applies the platforms fallback the same way as fromRemoteConfigJson',
+        () {
+      final template = {
+        'parameters': {
+          'fl_updater_config': {
+            'defaultValue': {
+              'value': '{"latest_version": "1.0.0", '
+                  '"platforms": {"android": {"latest_version": "2.5.0"}}}'
+            },
+            'valueType': 'STRING'
+          }
+        }
+      };
+
+      final info = UpdateInfo.fromTemplateJson(
         template: template,
-        currentVersion: '1.9.0',
-        platform: TargetPlatform.iOS,
+        currentVersion: '1.0.0',
+        platform: 'android',
       );
-      expect(iosInfo.latestVersion, '2.1.0');
-      expect(iosInfo.status, UpdateStatus.soft); // 1.9.0 >= 1.8.0 but < 2.1.0
+
+      expect(info.latestVersion, '2.5.0');
     });
 
     test(
-        'evaluates template JSON with useInAppDefault: true falling back to default or current',
+        'falls back to currentVersion and 0.0.0 when the parameter has useInAppDefault: true',
         () {
-      final userTemplate = {
-        'conditions': [
-          {
-            'name': 'fl_updater_android',
-            'expression': "device.os == 'android'",
-            'tagColor': 'DEEP_ORANGE'
-          },
-          {
-            'name': 'fl_updater_ios',
-            'expression': "device.os == 'ios'",
-            'tagColor': 'PINK'
-          }
-        ],
+      final template = {
         'parameters': {
-          'fl_updater_latest_version': {
-            'defaultValue': {'value': '0.0.0'},
-            'conditionalValues': {
-              'fl_updater_android': {'useInAppDefault': true},
-              'fl_updater_ios': {'useInAppDefault': true}
-            },
-            'description': 'Latest Version of the App',
-            'valueType': 'STRING'
-          },
-          'fl_updater_min_version': {
+          'fl_updater_config': {
             'defaultValue': {'useInAppDefault': true},
-            'conditionalValues': {
-              'fl_updater_android': {'useInAppDefault': true},
-              'fl_updater_ios': {'useInAppDefault': true}
-            },
             'valueType': 'STRING'
           }
         }
       };
 
-      final infoAndroid = UpdateInfo.fromTemplateJson(
-        template: userTemplate,
+      final info = UpdateInfo.fromTemplateJson(
+        template: template,
         currentVersion: '1.0.0',
-        platform: TargetPlatform.android,
       );
-      expect(infoAndroid.status, UpdateStatus.none);
 
-      final infoIos = UpdateInfo.fromTemplateJson(
-        template: userTemplate,
+      expect(info.status, UpdateStatus.none);
+    });
+
+    test(
+        'falls back to currentVersion and 0.0.0 when the fl_updater_config parameter is absent',
+        () {
+      final info = UpdateInfo.fromTemplateJson(
+        template: const {'parameters': <String, dynamic>{}},
         currentVersion: '1.0.0',
-        platform: TargetPlatform.iOS,
       );
-      expect(infoIos.status, UpdateStatus.none);
+
+      expect(info.latestVersion, '1.0.0');
+      expect(info.status, UpdateStatus.none);
     });
   });
 

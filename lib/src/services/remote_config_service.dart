@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show appFlavor;
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../models/update_info.model.dart';
@@ -28,15 +29,28 @@ class RemoteConfigService {
   FirebaseRemoteConfig get _remoteConfig =>
       _providedRemoteConfig ?? FirebaseRemoteConfig.instance;
 
-  static const _knownKeys = [
-    'fl_updater_latest_version',
-    'fl_updater_min_version',
-  ];
+  static const _configKey = 'fl_updater_config';
 
-  static const _defaultValues = {
-    'fl_updater_latest_version': '0.0.0',
-    'fl_updater_min_version': '0.0.0',
-  };
+  static const _defaultValues = {_configKey: '{}'};
+
+  /// Maps [defaultTargetPlatform] to the `platforms` key used in the
+  /// `fl_updater_config` JSON schema (`'android'` / `'ios'`), or `null` on
+  /// platforms with no dedicated key (web, desktop) so platform-scoped
+  /// lookups simply fall through to flavor/top-level values.
+  ///
+  /// Not usable as a parameter default (unlike [appFlavor]) since
+  /// [defaultTargetPlatform] isn't a compile-time constant — resolved at
+  /// call time instead whenever [platform] isn't passed explicitly.
+  static String? _currentPlatformName() {
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.android:
+        return 'android';
+      case TargetPlatform.iOS:
+        return 'ios';
+      default:
+        return null;
+    }
+  }
 
   Future<UpdateInfo> checkForUpdate({
     Duration snoozeDuration = const Duration(days: 3),
@@ -46,7 +60,10 @@ class RemoteConfigService {
     bool? enableLogging,
     String? iosAppId,
     String? androidPackageId,
+    String? flavor = appFlavor,
+    String? platform,
   }) async {
+    final resolvedPlatform = platform ?? _currentPlatformName();
     // `enabled` is the master gate and takes precedence over every other
     // parameter below (enableLogging, clearSnoozeInDebugMode) — checked
     // first, before any of them are acted on.
@@ -65,14 +82,6 @@ class RemoteConfigService {
       );
     }
 
-    FlUpdaterLogger.log(
-      'Checking for update with snoozeDuration=$snoozeDuration, '
-      'minimumFetchInterval=$minimumFetchInterval, enabled=$enabled, '
-      'clearSnoozeInDebugMode=$clearSnoozeInDebugMode, '
-      'iosAppId=$iosAppId, androidPackageId=$androidPackageId',
-      enableLogging: logging,
-    );
-
     if (kDebugMode && clearSnoozeInDebugMode) {
       FlUpdaterLogger.log(
         'clearSnoozeInDebugMode is enabled: clearing snooze store in debug mode.',
@@ -84,9 +93,6 @@ class RemoteConfigService {
     try {
       final packageInfo = await PackageInfo.fromPlatform();
       final currentVersion = packageInfo.version;
-
-      FlUpdaterLogger.log('Current installed version: $currentVersion',
-          enableLogging: logging);
 
       try {
         await _remoteConfig.setConfigSettings(
@@ -106,21 +112,22 @@ class RemoteConfigService {
         );
       }
 
-      final values = {
-        for (final key in _knownKeys) key: _remoteConfig.getString(key)
-      };
+      final rawConfig = _remoteConfig.getString(_configKey);
 
-      var info = UpdateInfo.fromRemoteConfigValues(
-        values: values,
+      var info = UpdateInfo.fromRemoteConfigJson(
+        json: rawConfig,
         currentVersion: currentVersion,
+        flavor: flavor,
+        platform: resolvedPlatform,
         iosAppId: iosAppId,
         androidPackageId: androidPackageId,
       );
 
-      FlUpdaterLogger.log('Fetched remote config values: $values',
-          enableLogging: logging);
-      FlUpdaterLogger.log('Evaluated update status: ${info.status.name}',
-          enableLogging: logging);
+      FlUpdaterLogger.log(
+        'checkForUpdate: flavor=$flavor platform=$resolvedPlatform current=$currentVersion '
+        'config=$rawConfig -> latest=${info.latestVersion} status=${info.status.name}',
+        enableLogging: logging,
+      );
 
       if (info.status == UpdateStatus.soft &&
           await _snoozeStore.isSnoozed(info.latestVersion)) {
@@ -158,7 +165,10 @@ class RemoteConfigService {
     String? androidPackageId,
     bool clearSnooze = true,
     bool? enableLogging,
+    String? flavor = appFlavor,
+    String? platform,
   }) async {
+    final resolvedPlatform = platform ?? _currentPlatformName();
     final logging = enableLogging ?? this.enableLogging;
     try {
       final packageInfo = await PackageInfo.fromPlatform();
@@ -172,21 +182,22 @@ class RemoteConfigService {
         await _snoozeStore.clear();
       }
 
-      final values = {
-        for (final key in _knownKeys) key: _remoteConfig.getString(key)
-      };
+      final rawConfig = _remoteConfig.getString(_configKey);
 
-      var info = UpdateInfo.fromRemoteConfigValues(
-        values: values,
+      var info = UpdateInfo.fromRemoteConfigJson(
+        json: rawConfig,
         currentVersion: currentVersion,
+        flavor: flavor,
+        platform: resolvedPlatform,
         iosAppId: iosAppId,
         androidPackageId: androidPackageId,
       );
 
-      FlUpdaterLogger.log('Active remote config values: $values',
-          enableLogging: logging);
-      FlUpdaterLogger.log('Evaluated update status: ${info.status.name}',
-          enableLogging: logging);
+      FlUpdaterLogger.log(
+        'evaluateActiveConfig: flavor=$flavor platform=$resolvedPlatform current=$currentVersion '
+        'config=$rawConfig -> latest=${info.latestVersion} status=${info.status.name}',
+        enableLogging: logging,
+      );
 
       if (!clearSnooze &&
           info.status == UpdateStatus.soft &&
@@ -218,8 +229,9 @@ class RemoteConfigService {
 
   /// Listens to real-time Remote Config updates using [FirebaseRemoteConfig.onConfigUpdated].
   ///
-  /// When [fl_updater_latest_version] or [fl_updater_min_version] changes (or when a general
-  /// template update is pushed), activates the updated values immediately and calls [onConfigUpdated].
+  /// When the `fl_updater_config` parameter changes (or when a general template
+  /// update is pushed), activates the updated value immediately and calls
+  /// [onConfigUpdated].
   StreamSubscription<RemoteConfigUpdate>? listenForUpdates(
     Future<void> Function() onConfigUpdated, {
     bool? enableLogging,
@@ -228,13 +240,12 @@ class RemoteConfigService {
       final logging = enableLogging ?? this.enableLogging;
       return _remoteConfig.onConfigUpdated.listen(
         (event) async {
-          FlUpdaterLogger.log(
-            'Real-time Remote Config update received for keys: ${event.updatedKeys}',
-            enableLogging: logging,
-          );
           if (event.updatedKeys.isEmpty ||
-              event.updatedKeys.contains('fl_updater_latest_version') ||
-              event.updatedKeys.contains('fl_updater_min_version')) {
+              event.updatedKeys.contains(_configKey)) {
+            FlUpdaterLogger.log(
+              'Real-time update received for $_configKey (keys: ${event.updatedKeys}).',
+              enableLogging: logging,
+            );
             try {
               final activated = await _remoteConfig.activate();
               FlUpdaterLogger.log(

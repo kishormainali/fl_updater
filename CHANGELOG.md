@@ -1,14 +1,24 @@
 ## 0.1.0
 
 ### Breaking Changes
+* **Replaced the two flat Remote Config parameters with a single JSON-structured one.** `fl_updater_latest_version` and `fl_updater_min_version` are gone; `fl_updater` now reads one String parameter, `fl_updater_config`, whose value is a JSON object: `{"latest_version": "1.0.0", "min_version": "1.0.0"}`.
+  * `UpdateInfo.fromRemoteConfigValues` is replaced by `UpdateInfo.fromRemoteConfigJson`, which parses this JSON directly instead of taking a `Map<String, String>`.
+  * `UpdateInfo.fromTemplateJson` drops its old `platform` parameter (a `TargetPlatform` used for Remote Config condition-based lookup of the old parameter names) in favor of a `String? platform` matching the new JSON schema's `platforms` key, and now reads the `fl_updater_config` parameter's default value using that schema.
 * Renamed `enableInDebugMode` to `enabled` on `FlUpdaterWrapper`, `FlUpdater.checkForUpdate`, `FlUpdater.showUpdateDialog`, and `RemoteConfigService.checkForUpdate`.
   * `enabled` is now the single global gate for *all* automatic update behavior — the initial check, real-time listening, and `clearSnoozeInDebugMode` — checked first and taking precedence over every other flag.
   * Defaults to `!kDebugMode`, matching the previous default behavior (checks skipped in debug, run in release). Unlike the old flag, `enabled` can now also fully disable checking in release builds, not just opt into it in debug.
   * Toggling `enabled` at runtime (e.g. via a rebuild) now dynamically tears down or re-establishes the real-time Remote Config listener.
 
+### Features
+* **Per-Flavor and Per-Platform Remote Config Targeting**: Support for multiple apps registered under the same Firebase project (one per build flavor), and/or different version numbers per platform, from a single `fl_updater_config` parameter. Nest optional `flavors` (keyed by flavor name, e.g. `development`, `staging`, `uat`, `production`) and/or `platforms` (keyed by `android` / `ios`, each of which can itself nest its own `flavors`) objects in the JSON. `RemoteConfigService.checkForUpdate`/`evaluateActiveConfig`, `FlUpdater.checkForUpdate`/`showUpdateDialog`, and `FlUpdaterWrapper` now accept `flavor` and `platform` parameters (defaulting to Flutter's built-in `appFlavor` and the detected platform respectively, so most apps need no code change). Every object and field is optional — `latest_version` and `min_version` are each resolved independently, most specific first: `platforms.<platform>.flavors.<flavor>`, then `platforms.<platform>`, then `flavors.<flavor>`, then the top-level field.
+
 ### Fixes
+* `VersionComparator` now correctly parses versions with a build-number suffix in `x.x.x+x` form (e.g. `1.0.0+10`, matching `pubspec.yaml`'s `version:` field convention). Previously the `+build` suffix corrupted the patch segment's parse (silently falling back to `0`); it's now parsed as its own trailing precedence tier, compared only once every semantic segment (major/minor/patch) is equal.
 * Fixed a crash — `The context used to push or pop routes from the Navigator must be that of a widget that is a descendant of a Navigator widget` — that could occur when `FlUpdaterWrapper` presented its update dialog in apps where the wrapper wasn't a strict ancestor of the app's `Navigator`. The Navigator lookup now also searches from the app's root element and always resolves to a genuine Navigator-descendant context.
 * Fixed the Android module requiring a very recent Gradle/AGP/Kotlin toolchain (`Minimum supported Gradle version is 9.3.1`), which broke builds on older but still current Gradle installs. Lowered the pinned Android Gradle Plugin and Kotlin versions and made Kotlin plugin application AGP-version-aware, so the module now builds correctly across both older and newer Android toolchains.
+
+### Improvements
+* Trimmed diagnostic logging (`enableLogging: true`) to fewer, denser lines — removed redundant/duplicate log lines and consolidated multi-line status output (current version, fetched config, evaluated status) into a single line per check.
 
 ## 0.0.2
 

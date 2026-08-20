@@ -63,10 +63,8 @@ void main() {
       () async {
     when(() => mockRemoteConfig.fetchAndActivate())
         .thenAnswer((_) async => true);
-    when(() => mockRemoteConfig.getString('fl_updater_latest_version'))
-        .thenReturn('2.0.0');
-    when(() => mockRemoteConfig.getString('fl_updater_min_version'))
-        .thenReturn('');
+    when(() => mockRemoteConfig.getString('fl_updater_config'))
+        .thenReturn('{"latest_version": "2.0.0"}');
 
     final service = RemoteConfigService(remoteConfig: mockRemoteConfig);
 
@@ -82,10 +80,8 @@ void main() {
       () async {
     when(() => mockRemoteConfig.fetchAndActivate())
         .thenAnswer((_) async => true);
-    when(() => mockRemoteConfig.getString('fl_updater_latest_version'))
-        .thenReturn('2.0.0');
-    when(() => mockRemoteConfig.getString('fl_updater_min_version'))
-        .thenReturn('');
+    when(() => mockRemoteConfig.getString('fl_updater_config'))
+        .thenReturn('{"latest_version": "2.0.0"}');
 
     final snoozeStore = FlUpdaterSnoozeStore();
     await snoozeStore.snooze('2.0.0', const Duration(days: 3));
@@ -135,14 +131,12 @@ void main() {
   });
 
   test(
-      'checkForUpdate fetches fl_updater_latest_version and fl_updater_min_version from remote config',
+      'checkForUpdate fetches latest_version and min_version from the fl_updater_config JSON',
       () async {
     when(() => mockRemoteConfig.fetchAndActivate())
         .thenAnswer((_) async => true);
-    when(() => mockRemoteConfig.getString('fl_updater_latest_version'))
-        .thenReturn('2.0.0');
-    when(() => mockRemoteConfig.getString('fl_updater_min_version'))
-        .thenReturn('1.5.0');
+    when(() => mockRemoteConfig.getString('fl_updater_config'))
+        .thenReturn('{"latest_version": "2.0.0", "min_version": "1.5.0"}');
 
     final service = RemoteConfigService(remoteConfig: mockRemoteConfig);
 
@@ -154,8 +148,54 @@ void main() {
     expect(info.latestVersion, '2.0.0');
   });
 
+  test('checkForUpdate uses the flavor entry when one matches', () async {
+    when(() => mockRemoteConfig.fetchAndActivate())
+        .thenAnswer((_) async => true);
+    when(() => mockRemoteConfig.getString('fl_updater_config'))
+        .thenReturn('{"latest_version": "1.1.0", "min_version": "5.0.0", '
+            '"flavors": {"dev": {"latest_version": "9.9.9"}}}');
+
+    final service = RemoteConfigService(remoteConfig: mockRemoteConfig);
+
+    final info = await service.checkForUpdate(enabled: true, flavor: 'dev');
+
+    // Flavor entry wins for latest_version...
+    expect(info.latestVersion, '9.9.9');
+    // ...but min_version isn't in the flavor entry, so it falls back to the
+    // top-level 5.0.0, forcing an update (installed is 1.0.0).
+    expect(info.status, UpdateStatus.force);
+  });
+
   test(
-      'listenForUpdates activates config and invokes callback when relevant keys update',
+      'checkForUpdate falls back to top-level values when the flavor has no matching entry',
+      () async {
+    when(() => mockRemoteConfig.fetchAndActivate())
+        .thenAnswer((_) async => true);
+    when(() => mockRemoteConfig.getString('fl_updater_config')).thenReturn(
+        '{"latest_version": "2.0.0", "flavors": {"staging": {"latest_version": "9.9.9"}}}');
+
+    final service = RemoteConfigService(remoteConfig: mockRemoteConfig);
+
+    final info = await service.checkForUpdate(enabled: true, flavor: 'dev');
+
+    expect(info.latestVersion, '2.0.0');
+  });
+
+  test('checkForUpdate uses an explicit platform override', () async {
+    when(() => mockRemoteConfig.fetchAndActivate())
+        .thenAnswer((_) async => true);
+    when(() => mockRemoteConfig.getString('fl_updater_config')).thenReturn(
+        '{"latest_version": "1.0.0", "platforms": {"ios": {"latest_version": "5.0.0"}}}');
+
+    final service = RemoteConfigService(remoteConfig: mockRemoteConfig);
+
+    final info = await service.checkForUpdate(enabled: true, platform: 'ios');
+
+    expect(info.latestVersion, '5.0.0');
+  });
+
+  test(
+      'listenForUpdates activates config and invokes callback when the config key updates',
       () async {
     final controller = StreamController<RemoteConfigUpdate>();
     when(() => mockRemoteConfig.onConfigUpdated)
@@ -167,7 +207,7 @@ void main() {
       callbackCalled = true;
     });
 
-    controller.add(RemoteConfigUpdate({'fl_updater_latest_version'}));
+    controller.add(RemoteConfigUpdate({'fl_updater_config'}));
     await pumpEventQueue();
 
     expect(callbackCalled, isTrue);
@@ -201,10 +241,8 @@ void main() {
   test(
       'evaluateActiveConfig reads already active Remote Config values without fetch',
       () async {
-    when(() => mockRemoteConfig.getString('fl_updater_latest_version'))
-        .thenReturn('2.1.0');
-    when(() => mockRemoteConfig.getString('fl_updater_min_version'))
-        .thenReturn('1.8.0');
+    when(() => mockRemoteConfig.getString('fl_updater_config'))
+        .thenReturn('{"latest_version": "2.1.0", "min_version": "1.8.0"}');
 
     final service = RemoteConfigService(remoteConfig: mockRemoteConfig);
     final info = await service.evaluateActiveConfig();
@@ -216,10 +254,8 @@ void main() {
 
   test('evaluateActiveConfig clears snooze store when clearSnooze is true',
       () async {
-    when(() => mockRemoteConfig.getString('fl_updater_latest_version'))
-        .thenReturn('2.1.0');
-    when(() => mockRemoteConfig.getString('fl_updater_min_version'))
-        .thenReturn('0.0.0');
+    when(() => mockRemoteConfig.getString('fl_updater_config'))
+        .thenReturn('{"latest_version": "2.1.0", "min_version": "0.0.0"}');
 
     final snoozeStore = FlUpdaterSnoozeStore();
     await snoozeStore.snooze('2.1.0', const Duration(days: 3));
@@ -234,5 +270,18 @@ void main() {
     expect(info.status,
         UpdateStatus.soft); // Not downgraded to none because snooze was cleared
     expect(await snoozeStore.isSnoozed('2.1.0'), isFalse);
+  });
+
+  test('evaluateActiveConfig applies the flavor entry fallback', () async {
+    when(() => mockRemoteConfig.getString('fl_updater_config')).thenReturn(
+        '{"latest_version": "1.0.0", "min_version": "1.0.0", '
+        '"flavors": {"staging": {"latest_version": "3.0.0", "min_version": "2.8.0"}}}');
+
+    final service = RemoteConfigService(remoteConfig: mockRemoteConfig);
+    final info = await service.evaluateActiveConfig(
+        clearSnooze: false, flavor: 'staging');
+
+    expect(info.latestVersion, '3.0.0');
+    expect(info.status, UpdateStatus.force); // installed 1.0.0 < min 2.8.0
   });
 }

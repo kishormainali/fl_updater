@@ -91,13 +91,7 @@ Future<void> presentUpdateDialog(
   FlUpdaterDialogStyle? style,
   bool? enableLogging,
 }) async {
-  if (info.status == UpdateStatus.none) {
-    FlUpdaterLogger.log(
-      'No update dialog to present (status: none).',
-      enableLogging: enableLogging,
-    );
-    return;
-  }
+  if (info.status == UpdateStatus.none) return;
   if (!context.mounted) return;
 
   final navContext = findNavigatorContext(context, navigatorKey: navigatorKey);
