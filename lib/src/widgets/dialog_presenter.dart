@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:fp_logger/fp_logger.dart';
 
 import '../models/update_info.model.dart';
 import '../models/update_status.dart';
 import '../services/fl_updater_platform_interface.dart';
 import '../services/snooze_store.dart';
-import '../utils/logger.dart';
+import '../utils/logging.dart';
 import 'update_dialog.dart';
 
 /// Finds a [BuildContext] that is or has an ancestor [NavigatorState].
@@ -97,45 +98,56 @@ Future<void> presentUpdateDialog(
   final navContext = findNavigatorContext(context, navigatorKey: navigatorKey);
   if (!navContext.mounted) return;
 
-  FlUpdaterLogger.log(
-    'Presenting update dialog for status: ${info.status.name}',
-    enableLogging: enableLogging,
-  );
+  final logging = enableLogging ?? flUpdaterLoggingEnabled;
+  if (logging) {
+    Logger.i(
+      'Presenting update dialog for status: ${info.status.name}',
+      tag: flUpdaterLogTag,
+    );
+  }
 
   Future<void> onUpdate() async {
     try {
-      FlUpdaterLogger.log(
-        'Opening store (iosAppId: ${info.iosAppId}, androidPackageId: ${info.androidPackageId})',
-        enableLogging: enableLogging,
-      );
+      if (logging) {
+        Logger.i(
+          'Opening store (iosAppId: ${info.iosAppId}, androidPackageId: ${info.androidPackageId})',
+          tag: flUpdaterLogTag,
+        );
+      }
       await FlUpdaterPlatform.instance.openStore(
         iosAppId: info.iosAppId,
         androidPackageId: info.androidPackageId,
       );
     } catch (error, stackTrace) {
-      FlUpdaterLogger.log(
-        'Failed to open store: $error',
-        error: error,
-        stackTrace: stackTrace,
-        enableLogging: enableLogging,
-      );
+      if (logging) {
+        Logger.e(
+          'Failed to open store: $error',
+          error: error,
+          stackTrace: stackTrace,
+          tag: flUpdaterLogTag,
+        );
+      }
     }
   }
 
   Future<void> onLater() async {
     try {
-      FlUpdaterLogger.log(
-        'Snoozing version ${info.latestVersion} for $snoozeDuration',
-        enableLogging: enableLogging,
-      );
+      if (logging) {
+        Logger.i(
+          'Snoozing version ${info.latestVersion} for $snoozeDuration',
+          tag: flUpdaterLogTag,
+        );
+      }
       await snoozeStore.snooze(info.latestVersion, snoozeDuration);
     } catch (error, stackTrace) {
-      FlUpdaterLogger.log(
-        'Failed to record snooze: $error',
-        error: error,
-        stackTrace: stackTrace,
-        enableLogging: enableLogging,
-      );
+      if (logging) {
+        Logger.e(
+          'Failed to record snooze: $error',
+          error: error,
+          stackTrace: stackTrace,
+          tag: flUpdaterLogTag,
+        );
+      }
     }
     if (navContext.mounted) {
       Navigator.of(navContext, rootNavigator: true).pop();

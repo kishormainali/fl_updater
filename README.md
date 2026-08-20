@@ -126,6 +126,7 @@ In code, `fl_updater` reads the flavor and platform automatically — flavor fro
 ### Step 3 — Configure store redirection identifiers (in code, not console)
 
 Not part of Remote Config — pass these directly to `FlUpdaterWrapper` / the imperative API:
+
 - **iOS (`iosAppId`)**: Numeric Apple App Store ID (e.g., `'123456789'`).
 - **Android (`androidPackageId`)**: Package name (e.g., `'com.example.app'`). Defaults to the host app package name if omitted.
 

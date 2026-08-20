@@ -178,6 +178,19 @@ void main() {
       expect(info.status, UpdateStatus.soft);
     });
 
+    test(
+        'falls back to top-level values when the "flavors" key is entirely absent '
+        'from the JSON, even though a flavor is passed', () {
+      final info = UpdateInfo.fromRemoteConfigJson(
+        json: '{"latest_version": "1.2.0", "min_version": "1.0.0"}',
+        currentVersion: '1.0.0',
+        flavor: 'production',
+      );
+
+      expect(info.latestVersion, '1.2.0');
+      expect(info.status, UpdateStatus.soft); // 1.0.0 >= min, but < latest
+    });
+
     test('falls back to top-level values when flavor is null', () {
       const json = '''
       {
@@ -237,6 +250,33 @@ void main() {
       );
 
       expect(info.latestVersion, '1.2.0');
+    });
+
+    test(
+        'falls back to top-level values when the "platforms" key is entirely absent '
+        'from the JSON, even though a platform is passed', () {
+      final info = UpdateInfo.fromRemoteConfigJson(
+        json: '{"latest_version": "1.2.0", "min_version": "1.0.0"}',
+        currentVersion: '1.0.0',
+        platform: 'android',
+      );
+
+      expect(info.latestVersion, '1.2.0');
+      expect(info.status, UpdateStatus.soft); // 1.0.0 >= min, but < latest
+    });
+
+    test(
+        'falls back to top-level values when both "flavors" and "platforms" keys '
+        'are absent, even though both a flavor and platform are passed', () {
+      final info = UpdateInfo.fromRemoteConfigJson(
+        json: '{"latest_version": "1.2.0", "min_version": "1.0.0"}',
+        currentVersion: '1.0.0',
+        flavor: 'production',
+        platform: 'android',
+      );
+
+      expect(info.latestVersion, '1.2.0');
+      expect(info.status, UpdateStatus.soft); // 1.0.0 >= min, but < latest
     });
 
     test(

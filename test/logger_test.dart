@@ -1,62 +1,80 @@
-import 'package:flutter/foundation.dart';
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fl_updater/fl_updater.dart';
+import 'package:fl_updater/src/utils/logging.dart';
+
+/// Captures stdout writes made via `print()` — what `package:fp_logger`
+/// emits through internally — by running [body] inside a zone with a
+/// custom print handler.
+Future<List<String>> _captureLogs(FutureOr<void> Function() body) async {
+  final logs = <String>[];
+  await runZoned(
+    () async => await body(),
+    zoneSpecification: ZoneSpecification(
+      print: (self, parent, zone, line) => logs.add(line),
+    ),
+  );
+  return logs;
+}
 
 void main() {
-  final originalDebugPrint = debugPrint;
-  final capturedLogs = <String>[];
-
   setUp(() {
-    FlUpdaterLogger.enabled = false;
-    capturedLogs.clear();
-    debugPrint = (String? message, {int? wrapWidth}) {
-      if (message != null) capturedLogs.add(message);
-    };
+    SharedPreferences.setMockInitialValues({});
+    flUpdaterLoggingEnabled = false;
   });
+  tearDown(() => flUpdaterLoggingEnabled = false);
 
-  tearDown(() {
-    FlUpdaterLogger.enabled = false;
-    debugPrint = originalDebugPrint;
-  });
-
-  test('FlUpdaterLogger.enabled is false by default', () {
-    expect(FlUpdaterLogger.enabled, isFalse);
+  test('FlUpdater.enableLogging is false by default', () {
     expect(FlUpdater.enableLogging, isFalse);
+    expect(flUpdaterLoggingEnabled, isFalse);
   });
 
   test(
-      'FlUpdater.enableLogging getter and setter update FlUpdaterLogger.enabled',
+      'FlUpdater.enableLogging getter and setter mirror flUpdaterLoggingEnabled',
       () {
     FlUpdater.enableLogging = true;
-    expect(FlUpdaterLogger.enabled, isTrue);
+    expect(flUpdaterLoggingEnabled, isTrue);
     expect(FlUpdater.enableLogging, isTrue);
 
     FlUpdater.enableLogging = false;
-    expect(FlUpdaterLogger.enabled, isFalse);
+    expect(flUpdaterLoggingEnabled, isFalse);
     expect(FlUpdater.enableLogging, isFalse);
   });
 
-  test('FlUpdaterLogger.log executes safely and prints when enabled', () {
-    // Should not print or throw when disabled
-    FlUpdaterLogger.enabled = false;
-    FlUpdaterLogger.log('test disabled message', enableLogging: false);
-    expect(capturedLogs, isEmpty);
+  test('FlUpdater.clearSnoozeStore prints nothing when logging is disabled',
+      () async {
+    final logs = await _captureLogs(() async {
+      await FlUpdater.clearSnoozeStore();
+    });
 
-    // Should print formatted message when enabled
-    FlUpdaterLogger.log('test enabled message', enableLogging: true);
-    expect(capturedLogs.length, 1);
-    expect(capturedLogs.first, contains('[fl_updater] test enabled message'));
+    expect(logs, isEmpty);
+  });
 
-    // Should include error and stackTrace when provided
-    FlUpdaterLogger.log(
-      'test error message',
-      error: Exception('sample error'),
-      stackTrace: StackTrace.fromString('custom_stack_trace_line'),
-      enableLogging: true,
-    );
-    expect(capturedLogs.length, 2);
-    expect(capturedLogs[1], contains('[fl_updater] test error message'));
-    expect(capturedLogs[1], contains('Error: Exception: sample error'));
-    expect(capturedLogs[1], contains('custom_stack_trace_line'));
+  test(
+      'FlUpdater.clearSnoozeStore prints a tagged message when logging is enabled',
+      () async {
+    FlUpdater.enableLogging = true;
+
+    final logs = await _captureLogs(() async {
+      await FlUpdater.clearSnoozeStore();
+    });
+
+    expect(logs, isNotEmpty);
+    expect(logs.join('\n'), contains('[fl_updater]'));
+    expect(logs.join('\n'), contains('Clearing snooze store globally.'));
+  });
+
+  test('FlUpdater.clearSnooze respects a per-instance enableLogging override',
+      () async {
+    final updater = FlUpdater(enableLogging: true);
+
+    final logs = await _captureLogs(() async {
+      await updater.clearSnooze();
+    });
+
+    expect(logs, isNotEmpty);
+    expect(logs.join('\n'), contains('Clearing snooze store.'));
   });
 }

@@ -3,11 +3,12 @@ import 'dart:async';
 import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show appFlavor;
+import 'package:fp_logger/fp_logger.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../models/update_info.model.dart';
 import '../models/update_status.dart';
-import '../utils/logger.dart';
+import '../utils/logging.dart';
 import 'snooze_store.dart';
 
 class RemoteConfigService {
@@ -52,6 +53,20 @@ class RemoteConfigService {
     }
   }
 
+  /// Combines [PackageInfo.version] and [PackageInfo.buildNumber] into the
+  /// `x.x.x+x` form [VersionComparator] expects, so an installed build is
+  /// compared correctly against a Remote Config `min_version`/`latest_version`
+  /// that specifies a build number. [PackageInfo.version] alone never
+  /// contains the build number — leaving it off would make every install
+  /// compare as build `0`, incorrectly forcing an update whenever the config
+  /// specifies a build-number requirement above zero.
+  static String _currentVersion(PackageInfo packageInfo) {
+    final buildNumber = packageInfo.buildNumber;
+    return buildNumber.isEmpty
+        ? packageInfo.version
+        : '${packageInfo.version}+$buildNumber';
+  }
+
   Future<UpdateInfo> checkForUpdate({
     Duration snoozeDuration = const Duration(days: 3),
     Duration minimumFetchInterval = const Duration(hours: 1),
@@ -67,12 +82,13 @@ class RemoteConfigService {
     // `enabled` is the master gate and takes precedence over every other
     // parameter below (enableLogging, clearSnoozeInDebugMode) — checked
     // first, before any of them are acted on.
-    final logging = enableLogging ?? this.enableLogging;
+    final logging =
+        (enableLogging ?? this.enableLogging) ?? flUpdaterLoggingEnabled;
     if (!enabled) {
-      FlUpdaterLogger.log(
-        'Update check skipped (enabled is false).',
-        enableLogging: logging,
-      );
+      if (logging) {
+        Logger.i('Update check skipped (enabled is false).',
+            tag: flUpdaterLogTag);
+      }
       return UpdateInfo(
         currentVersion: '',
         latestVersion: '',
@@ -83,16 +99,18 @@ class RemoteConfigService {
     }
 
     if (kDebugMode && clearSnoozeInDebugMode) {
-      FlUpdaterLogger.log(
-        'clearSnoozeInDebugMode is enabled: clearing snooze store in debug mode.',
-        enableLogging: logging,
-      );
+      if (logging) {
+        Logger.i(
+          'clearSnoozeInDebugMode is enabled: clearing snooze store in debug mode.',
+          tag: flUpdaterLogTag,
+        );
+      }
       await _snoozeStore.clear();
     }
 
     try {
       final packageInfo = await PackageInfo.fromPlatform();
-      final currentVersion = packageInfo.version;
+      final currentVersion = _currentVersion(packageInfo);
 
       try {
         await _remoteConfig.setConfigSettings(
@@ -104,12 +122,14 @@ class RemoteConfigService {
         await _remoteConfig.setDefaults(_defaultValues);
         await _remoteConfig.fetchAndActivate();
       } catch (fetchError, fetchStackTrace) {
-        FlUpdaterLogger.log(
-          'Remote config fetch threw error (evaluating active config): $fetchError',
-          error: fetchError,
-          stackTrace: fetchStackTrace,
-          enableLogging: logging,
-        );
+        if (logging) {
+          Logger.e(
+            'Remote config fetch threw error (evaluating active config): $fetchError',
+            error: fetchError,
+            stackTrace: fetchStackTrace,
+            tag: flUpdaterLogTag,
+          );
+        }
       }
 
       final rawConfig = _remoteConfig.getString(_configKey);
@@ -123,29 +143,40 @@ class RemoteConfigService {
         androidPackageId: androidPackageId,
       );
 
-      FlUpdaterLogger.log(
-        'checkForUpdate: flavor=$flavor platform=$resolvedPlatform current=$currentVersion '
-        'config=$rawConfig -> latest=${info.latestVersion} status=${info.status.name}',
-        enableLogging: logging,
-      );
+      if (logging) {
+        // Passed separately (rather than interpolated into the summary line
+        // below) so fp_logger's auto-detection pretty-prints the JSON with
+        // indentation instead of dumping it as one unreadable minified blob.
+        Logger.i(rawConfig, tag: flUpdaterLogTag);
+        Logger.i(
+          'checkForUpdate: flavor=$flavor platform=$resolvedPlatform '
+          'current=$currentVersion -> latest=${info.latestVersion} '
+          'status=${info.status.name}',
+          tag: flUpdaterLogTag,
+        );
+      }
 
       if (info.status == UpdateStatus.soft &&
           await _snoozeStore.isSnoozed(info.latestVersion)) {
-        FlUpdaterLogger.log(
-          'Version ${info.latestVersion} is currently snoozed; setting status to none.',
-          enableLogging: logging,
-        );
+        if (logging) {
+          Logger.i(
+            'Version ${info.latestVersion} is currently snoozed; setting status to none.',
+            tag: flUpdaterLogTag,
+          );
+        }
         info = info.copyWith(status: UpdateStatus.none);
       }
 
       return info;
     } catch (error, stackTrace) {
-      FlUpdaterLogger.log(
-        'Failed to fetch remote config: $error',
-        error: error,
-        stackTrace: stackTrace,
-        enableLogging: logging,
-      );
+      if (logging) {
+        Logger.e(
+          'Failed to fetch remote config: $error',
+          error: error,
+          stackTrace: stackTrace,
+          tag: flUpdaterLogTag,
+        );
+      }
       return UpdateInfo(
         currentVersion: '',
         latestVersion: '',
@@ -169,16 +200,19 @@ class RemoteConfigService {
     String? platform,
   }) async {
     final resolvedPlatform = platform ?? _currentPlatformName();
-    final logging = enableLogging ?? this.enableLogging;
+    final logging =
+        (enableLogging ?? this.enableLogging) ?? flUpdaterLoggingEnabled;
     try {
       final packageInfo = await PackageInfo.fromPlatform();
-      final currentVersion = packageInfo.version;
+      final currentVersion = _currentVersion(packageInfo);
 
       if (clearSnooze) {
-        FlUpdaterLogger.log(
-          'Clearing snooze store on real-time update evaluation.',
-          enableLogging: logging,
-        );
+        if (logging) {
+          Logger.i(
+            'Clearing snooze store on real-time update evaluation.',
+            tag: flUpdaterLogTag,
+          );
+        }
         await _snoozeStore.clear();
       }
 
@@ -193,30 +227,41 @@ class RemoteConfigService {
         androidPackageId: androidPackageId,
       );
 
-      FlUpdaterLogger.log(
-        'evaluateActiveConfig: flavor=$flavor platform=$resolvedPlatform current=$currentVersion '
-        'config=$rawConfig -> latest=${info.latestVersion} status=${info.status.name}',
-        enableLogging: logging,
-      );
+      if (logging) {
+        // Passed separately (rather than interpolated into the summary line
+        // below) so fp_logger's auto-detection pretty-prints the JSON with
+        // indentation instead of dumping it as one unreadable minified blob.
+        Logger.i(rawConfig, tag: flUpdaterLogTag);
+        Logger.i(
+          'evaluateActiveConfig: flavor=$flavor platform=$resolvedPlatform '
+          'current=$currentVersion -> latest=${info.latestVersion} '
+          'status=${info.status.name}',
+          tag: flUpdaterLogTag,
+        );
+      }
 
       if (!clearSnooze &&
           info.status == UpdateStatus.soft &&
           await _snoozeStore.isSnoozed(info.latestVersion)) {
-        FlUpdaterLogger.log(
-          'Version ${info.latestVersion} is currently snoozed; setting status to none.',
-          enableLogging: logging,
-        );
+        if (logging) {
+          Logger.i(
+            'Version ${info.latestVersion} is currently snoozed; setting status to none.',
+            tag: flUpdaterLogTag,
+          );
+        }
         info = info.copyWith(status: UpdateStatus.none);
       }
 
       return info;
     } catch (error, stackTrace) {
-      FlUpdaterLogger.log(
-        'Failed to evaluate active remote config: $error',
-        error: error,
-        stackTrace: stackTrace,
-        enableLogging: logging,
-      );
+      if (logging) {
+        Logger.e(
+          'Failed to evaluate active remote config: $error',
+          error: error,
+          stackTrace: stackTrace,
+          tag: flUpdaterLogTag,
+        );
+      }
       return UpdateInfo(
         currentVersion: '',
         latestVersion: '',
@@ -236,49 +281,60 @@ class RemoteConfigService {
     Future<void> Function() onConfigUpdated, {
     bool? enableLogging,
   }) {
+    final logging =
+        (enableLogging ?? this.enableLogging) ?? flUpdaterLoggingEnabled;
     try {
-      final logging = enableLogging ?? this.enableLogging;
       return _remoteConfig.onConfigUpdated.listen(
         (event) async {
           if (event.updatedKeys.isEmpty ||
               event.updatedKeys.contains(_configKey)) {
-            FlUpdaterLogger.log(
-              'Real-time update received for $_configKey (keys: ${event.updatedKeys}).',
-              enableLogging: logging,
-            );
+            if (logging) {
+              Logger.i(
+                'Real-time update received for $_configKey (keys: ${event.updatedKeys}).',
+                tag: flUpdaterLogTag,
+              );
+            }
             try {
               final activated = await _remoteConfig.activate();
-              FlUpdaterLogger.log(
-                'Activated real-time Remote Config update (new values activated: $activated).',
-                enableLogging: logging,
-              );
+              if (logging) {
+                Logger.i(
+                  'Activated real-time Remote Config update (new values activated: $activated).',
+                  tag: flUpdaterLogTag,
+                );
+              }
             } catch (err, st) {
-              FlUpdaterLogger.log(
-                'Failed to activate real-time Remote Config update: $err',
-                error: err,
-                stackTrace: st,
-                enableLogging: logging,
-              );
+              if (logging) {
+                Logger.e(
+                  'Failed to activate real-time Remote Config update: $err',
+                  error: err,
+                  stackTrace: st,
+                  tag: flUpdaterLogTag,
+                );
+              }
             }
             await onConfigUpdated();
           }
         },
         onError: (Object error, StackTrace stackTrace) {
-          FlUpdaterLogger.log(
-            'Error in real-time Remote Config update stream: $error',
-            error: error,
-            stackTrace: stackTrace,
-            enableLogging: logging,
-          );
+          if (logging) {
+            Logger.e(
+              'Error in real-time Remote Config update stream: $error',
+              error: error,
+              stackTrace: stackTrace,
+              tag: flUpdaterLogTag,
+            );
+          }
         },
       );
     } catch (error, stackTrace) {
-      FlUpdaterLogger.log(
-        'Failed to subscribe to real-time Remote Config updates: $error',
-        error: error,
-        stackTrace: stackTrace,
-        enableLogging: enableLogging ?? this.enableLogging,
-      );
+      if (logging) {
+        Logger.e(
+          'Failed to subscribe to real-time Remote Config updates: $error',
+          error: error,
+          stackTrace: stackTrace,
+          tag: flUpdaterLogTag,
+        );
+      }
       return null;
     }
   }

@@ -8,18 +8,18 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show appFlavor;
+import 'package:fp_logger/fp_logger.dart';
 
 import 'src/models/update_info.model.dart';
 import 'src/services/remote_config_service.dart';
 import 'src/services/snooze_store.dart';
-import 'src/utils/logger.dart';
+import 'src/utils/logging.dart';
 import 'src/widgets/dialog_presenter.dart';
 import 'src/widgets/update_dialog.dart';
 
 export 'src/models/update_info.model.dart';
 export 'src/models/update_status.dart';
 export 'src/services/snooze_store.dart' show FlUpdaterSnoozeStore;
-export 'src/utils/logger.dart' show FlUpdaterLogger;
 export 'src/widgets/update_dialog.dart'
     show FlUpdaterDialog, FlUpdaterDialogBuilder, FlUpdaterDialogStyle;
 export 'src/widgets/update_wrapper.dart';
@@ -43,14 +43,16 @@ class FlUpdater {
   /// Global flag to enable or disable diagnostic logging across fl_updater.
   ///
   /// Defaults to `false`.
-  static bool get enableLogging => FlUpdaterLogger.enabled;
-  static set enableLogging(bool value) => FlUpdaterLogger.enabled = value;
+  static bool get enableLogging => flUpdaterLoggingEnabled;
+  static set enableLogging(bool value) => flUpdaterLoggingEnabled = value;
 
   /// Clears any active snooze state from local storage globally.
   ///
   /// Useful for debugging and testing update prompts without waiting for snooze expiry.
   static Future<void> clearSnoozeStore() async {
-    FlUpdaterLogger.log('Clearing snooze store globally.');
+    if (flUpdaterLoggingEnabled) {
+      Logger.i('Clearing snooze store globally.', tag: flUpdaterLogTag);
+    }
     await FlUpdaterSnoozeStore().clear();
   }
 
@@ -64,8 +66,9 @@ class FlUpdater {
   ///
   /// Useful for debugging and testing update prompts without waiting for snooze expiry.
   Future<void> clearSnooze() async {
-    FlUpdaterLogger.log('Clearing snooze store.',
-        enableLogging: _enableLogging);
+    if (_enableLogging ?? flUpdaterLoggingEnabled) {
+      Logger.i('Clearing snooze store.', tag: flUpdaterLogTag);
+    }
     await _snoozeStore.clear();
   }
 

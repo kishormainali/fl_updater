@@ -11,6 +11,20 @@ import 'package:fl_updater/src/services/snooze_store.dart';
 
 class MockFirebaseRemoteConfig extends Mock implements FirebaseRemoteConfig {}
 
+/// Captures stdout writes made via `print()` — what `package:fp_logger`
+/// emits through internally — by running [body] inside a zone with a
+/// custom print handler.
+Future<List<String>> _captureLogs(FutureOr<void> Function() body) async {
+  final logs = <String>[];
+  await runZoned(
+    () async => await body(),
+    zoneSpecification: ZoneSpecification(
+      print: (self, parent, zone, line) => logs.add(line),
+    ),
+  );
+  return logs;
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -71,7 +85,7 @@ void main() {
     final info = await service.checkForUpdate(enabled: true);
 
     expect(info.status, UpdateStatus.soft);
-    expect(info.currentVersion, '1.0.0');
+    expect(info.currentVersion, '1.0.0+1');
     expect(info.latestVersion, '2.0.0');
   });
 
@@ -146,6 +160,54 @@ void main() {
 
     expect(info.status, UpdateStatus.force); // current is 1.0.0 < 1.5.0
     expect(info.latestVersion, '2.0.0');
+  });
+
+  test(
+      'checkForUpdate includes the installed build number in currentVersion so a '
+      'min_version build-number requirement does not always force-update',
+      () async {
+    PackageInfo.setMockInitialValues(
+      appName: 'fl_updater_test',
+      packageName: 'com.example.fl_updater_test',
+      version: '1.0.0',
+      buildNumber: '15',
+      buildSignature: '',
+    );
+
+    when(() => mockRemoteConfig.fetchAndActivate())
+        .thenAnswer((_) async => true);
+    when(() => mockRemoteConfig.getString('fl_updater_config')).thenReturn(
+        '{"latest_version": "1.0.0+15", "min_version": "1.0.0+10"}');
+
+    final service = RemoteConfigService(remoteConfig: mockRemoteConfig);
+
+    final info = await service.checkForUpdate(enabled: true);
+
+    expect(info.currentVersion, '1.0.0+15');
+    expect(info.status, UpdateStatus.none);
+  });
+
+  test(
+      'checkForUpdate logs the fetched config JSON pretty-printed (indented, multi-line) '
+      'rather than as one raw minified line', () async {
+    when(() => mockRemoteConfig.fetchAndActivate())
+        .thenAnswer((_) async => true);
+    when(() => mockRemoteConfig.getString('fl_updater_config'))
+        .thenReturn('{"latest_version": "2.0.0", "min_version": "1.5.0"}');
+
+    final service = RemoteConfigService(remoteConfig: mockRemoteConfig);
+
+    final logs = await _captureLogs(() async {
+      await service.checkForUpdate(enabled: true, enableLogging: true);
+    });
+
+    final output = logs.join('\n');
+    // Pretty-printed via JsonEncoder.withIndent('  ', ...): each key gets
+    // its own indented line, unlike the raw `{"latest_version": ...}` blob.
+    expect(output, contains('"latest_version": "2.0.0"'));
+    expect(output, contains('"min_version": "1.5.0"'));
+    expect(output, contains('  "latest_version"'));
+    expect(output, isNot(contains('config={')));
   });
 
   test('checkForUpdate uses the flavor entry when one matches', () async {

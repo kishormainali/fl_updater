@@ -4,11 +4,12 @@ import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show appFlavor;
+import 'package:fp_logger/fp_logger.dart';
 
 import '../models/update_status.dart';
 import '../services/remote_config_service.dart';
 import '../services/snooze_store.dart';
-import '../utils/logger.dart';
+import '../utils/logging.dart';
 import 'dialog_presenter.dart';
 import 'update_dialog.dart';
 
@@ -171,7 +172,7 @@ class FlUpdaterWrapper extends StatefulWidget {
 
   /// Whether to enable diagnostic logging.
   ///
-  /// When null, defaults to [FlUpdaterLogger.enabled].
+  /// When null, defaults to `FlUpdater.enableLogging`.
   final bool? enableLogging;
 
   final RemoteConfigService? _remoteConfigService;
@@ -206,10 +207,12 @@ class _FlUpdaterWrapperState extends State<FlUpdaterWrapper> {
     if (!widget.enabled) {
       _realtimeSubscription?.cancel();
       _realtimeSubscription = null;
-      FlUpdaterLogger.log(
-        'Real-time Remote Config updates disabled (enabled is false; set enabled: true to test in debug).',
-        enableLogging: widget.enableLogging,
-      );
+      if (widget.enableLogging ?? flUpdaterLoggingEnabled) {
+        Logger.i(
+          'Real-time Remote Config updates disabled (enabled is false; set enabled: true to test in debug).',
+          tag: flUpdaterLogTag,
+        );
+      }
       return;
     }
     if (!widget.listenForRealtimeUpdates) {
@@ -252,33 +255,40 @@ class _FlUpdaterWrapperState extends State<FlUpdaterWrapper> {
     // `enabled` is the master gate and takes precedence over every other
     // parameter (enableLogging, clearSnoozeInDebugMode) — checked first,
     // before any of them are acted on.
+    final logging = widget.enableLogging ?? flUpdaterLoggingEnabled;
     if (!widget.enabled) {
-      FlUpdaterLogger.log(
-        'Update check skipped (enabled is false).',
-        enableLogging: widget.enableLogging,
-      );
+      if (logging) {
+        Logger.i('Update check skipped (enabled is false).',
+            tag: flUpdaterLogTag);
+      }
       return;
     }
 
     if (_isDialogShowing) {
-      FlUpdaterLogger.log(
-        'Update check skipped because update dialog is already showing.',
-        enableLogging: widget.enableLogging,
-      );
+      if (logging) {
+        Logger.i(
+          'Update check skipped because update dialog is already showing.',
+          tag: flUpdaterLogTag,
+        );
+      }
       return;
     }
 
     if (fromRealtime) {
-      FlUpdaterLogger.log(
-        'Real-time update received: clearing snooze store to show update immediately.',
-        enableLogging: widget.enableLogging,
-      );
+      if (logging) {
+        Logger.i(
+          'Real-time update received: clearing snooze store to show update immediately.',
+          tag: flUpdaterLogTag,
+        );
+      }
       await _snoozeStore.clear();
     } else if (kDebugMode && widget.clearSnoozeInDebugMode) {
-      FlUpdaterLogger.log(
-        'clearSnoozeInDebugMode is enabled: clearing snooze store in debug mode.',
-        enableLogging: widget.enableLogging,
-      );
+      if (logging) {
+        Logger.i(
+          'clearSnoozeInDebugMode is enabled: clearing snooze store in debug mode.',
+          tag: flUpdaterLogTag,
+        );
+      }
       await _snoozeStore.clear();
     }
 
