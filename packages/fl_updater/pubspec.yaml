@@ -1,6 +1,6 @@
 name: fl_updater
 description: "Config-driven app update dialog with pluggable config providers, automatic wrapper, snoozable soft updates, and native App/Play Store opening."
-version: 0.2.0
+version: 0.2.1
 homepage: https://github.com/kishormainali/fl_updater
 repository: https://github.com/kishormainali/fl_updater
 issue_tracker: https://github.com/kishormainali/fl_updater/issues
