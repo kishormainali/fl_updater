@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fl_updater/fl_updater.dart';
 import 'package:fl_updater/src/utils/logging.dart';
+import 'fake_provider.dart';
 
 /// Captures stdout writes made via `print()` — what `package:fp_logger`
 /// emits through internally — by running [body] inside a zone with a
@@ -68,7 +69,7 @@ void main() {
 
   test('FlUpdater.clearSnooze respects a per-instance enableLogging override',
       () async {
-    final updater = FlUpdater(enableLogging: true);
+    final updater = FlUpdater(provider: FakeProvider(), enableLogging: true);
 
     final logs = await _captureLogs(() async {
       await updater.clearSnooze();

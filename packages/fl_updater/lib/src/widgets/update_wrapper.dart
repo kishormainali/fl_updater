@@ -1,19 +1,20 @@
 import 'dart:async';
 
-import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show appFlavor;
 import 'package:fp_logger/fp_logger.dart';
 
 import '../models/update_status.dart';
-import '../services/remote_config_service.dart';
+import '../providers/config_provider.dart';
+import '../providers/api_config_provider.dart';
+import '../services/update_service.dart';
 import '../services/snooze_store.dart';
 import '../utils/logging.dart';
 import 'dialog_presenter.dart';
 import 'update_dialog.dart';
 
-/// A declarative wrapper widget that automatically checks Firebase Remote Config
+/// A declarative wrapper widget that automatically checks the config provider
 /// on launch and presents an update dialog if an update is available.
 ///
 /// Typically used in the `builder` callback of [MaterialApp]:
@@ -50,9 +51,10 @@ class FlUpdaterWrapper extends StatefulWidget {
     this.clearSnoozeInDebugMode = false,
     this.listenForRealtimeUpdates = true,
     this.enableLogging,
-    @visibleForTesting RemoteConfigService? remoteConfigService,
+    required this.provider,
+    @visibleForTesting UpdateService? updateService,
     @visibleForTesting FlUpdaterSnoozeStore? snoozeStore,
-  })  : _remoteConfigService = remoteConfigService,
+  })  : _updateService = updateService,
         _snoozeStore = snoozeStore;
 
   /// The child widget to display (typically the app navigator or screen).
@@ -142,7 +144,7 @@ class FlUpdaterWrapper extends StatefulWidget {
   /// Defaults to 3 days.
   final Duration snoozeDuration;
 
-  /// Minimum interval between real Firebase Remote Config network fetches.
+  /// Minimum interval between real the config provider network fetches.
   /// Defaults to 1 hour.
   final Duration minimumFetchInterval;
 
@@ -163,10 +165,9 @@ class FlUpdaterWrapper extends StatefulWidget {
   /// Only takes effect when [enabled] is also `true`.
   final bool clearSnoozeInDebugMode;
 
-  /// Whether to listen to real-time Remote Config updates via [FirebaseRemoteConfig.onConfigUpdated].
+  /// Whether to listen to real-time config updates from [provider] (no-op if it has no push support).
   ///
-  /// When `true`, whenever the `fl_updater_config` parameter is updated in the
-  /// Firebase Console, the new config is activated and evaluated immediately
+  /// When `true`, whenever the provider reports a change, the new config is loaded and evaluated immediately
   /// without waiting for [minimumFetchInterval]. Defaults to `true`.
   final bool listenForRealtimeUpdates;
 
@@ -175,7 +176,10 @@ class FlUpdaterWrapper extends StatefulWidget {
   /// When null, defaults to `FlUpdater.enableLogging`.
   final bool? enableLogging;
 
-  final RemoteConfigService? _remoteConfigService;
+  /// Source of the update config (e.g. `FirebaseConfigProvider`, [ApiConfigProvider]).
+  final FlUpdaterConfigProvider provider;
+
+  final UpdateService? _updateService;
   final FlUpdaterSnoozeStore? _snoozeStore;
 
   @override
@@ -183,14 +187,15 @@ class FlUpdaterWrapper extends StatefulWidget {
 }
 
 class _FlUpdaterWrapperState extends State<FlUpdaterWrapper> {
-  late final RemoteConfigService _remoteConfigService;
+  late final UpdateService _updateService;
   late final FlUpdaterSnoozeStore _snoozeStore;
-  StreamSubscription<RemoteConfigUpdate>? _realtimeSubscription;
+  StreamSubscription<void>? _realtimeSubscription;
 
   @override
   void initState() {
     super.initState();
-    _remoteConfigService = widget._remoteConfigService ?? RemoteConfigService();
+    _updateService =
+        widget._updateService ?? UpdateService(provider: widget.provider);
     _snoozeStore = widget._snoozeStore ?? FlUpdaterSnoozeStore();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkForUpdate();
@@ -222,7 +227,7 @@ class _FlUpdaterWrapperState extends State<FlUpdaterWrapper> {
     }
 
     _realtimeSubscription?.cancel();
-    _realtimeSubscription = _remoteConfigService.listenForUpdates(
+    _realtimeSubscription = _updateService.listenForUpdates(
       () async {
         if (mounted) {
           await _checkForUpdate(fromRealtime: true);
@@ -293,7 +298,7 @@ class _FlUpdaterWrapperState extends State<FlUpdaterWrapper> {
     }
 
     final info = fromRealtime
-        ? await _remoteConfigService.evaluateActiveConfig(
+        ? await _updateService.evaluateActiveConfig(
             iosAppId: widget.iosAppId,
             androidPackageId: widget.androidPackageId,
             clearSnooze: true,
@@ -301,7 +306,7 @@ class _FlUpdaterWrapperState extends State<FlUpdaterWrapper> {
             flavor: widget.flavor,
             platform: widget.platform,
           )
-        : await _remoteConfigService.checkForUpdate(
+        : await _updateService.checkForUpdate(
             snoozeDuration: widget.snoozeDuration,
             minimumFetchInterval: widget.minimumFetchInterval,
             enabled: widget.enabled,

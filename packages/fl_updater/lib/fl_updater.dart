@@ -1,4 +1,4 @@
-/// A Flutter plugin that provides Firebase Remote Config-driven app update
+/// A Flutter plugin that provides remote-config-driven app update
 /// checking, snoozable soft updates, blocking force updates, and native
 /// App Store / Google Play Store redirection.
 library;
@@ -11,7 +11,8 @@ import 'package:flutter/services.dart' show appFlavor;
 import 'package:fp_logger/fp_logger.dart';
 
 import 'src/models/update_info.model.dart';
-import 'src/services/remote_config_service.dart';
+import 'src/providers/config_provider.dart';
+import 'src/services/update_service.dart';
 import 'src/services/snooze_store.dart';
 import 'src/utils/logging.dart';
 import 'src/widgets/dialog_presenter.dart';
@@ -19,6 +20,8 @@ import 'src/widgets/update_dialog.dart';
 
 export 'src/models/update_info.model.dart';
 export 'src/models/update_status.dart';
+export 'src/providers/api_config_provider.dart';
+export 'src/providers/config_provider.dart';
 export 'src/services/snooze_store.dart' show FlUpdaterSnoozeStore;
 export 'src/widgets/update_dialog.dart'
     show FlUpdaterDialog, FlUpdaterDialogBuilder, FlUpdaterDialogStyle;
@@ -30,13 +33,20 @@ export 'src/widgets/update_wrapper.dart';
 class FlUpdater {
   /// Creates a new [FlUpdater] instance.
   ///
-  /// Optionally accepts a custom [remoteConfigService] or [snoozeStore]
-  /// for dependency injection and testing.
+  /// [provider] supplies the update config (e.g. `FirebaseConfigProvider` from
+  /// `fl_updater_firebase`, or [ApiConfigProvider]). [updateService] and
+  /// [snoozeStore] can be injected for testing.
   FlUpdater({
-    RemoteConfigService? remoteConfigService,
+    required FlUpdaterConfigProvider provider,
+    @visibleForTesting UpdateService? updateService,
     FlUpdaterSnoozeStore? snoozeStore,
     bool? enableLogging,
-  })  : _remoteConfigService = remoteConfigService ?? RemoteConfigService(),
+  })  : _updateService = updateService ??
+            UpdateService(
+              provider: provider,
+              snoozeStore: snoozeStore,
+              enableLogging: enableLogging,
+            ),
         _snoozeStore = snoozeStore ?? FlUpdaterSnoozeStore(),
         _enableLogging = enableLogging;
 
@@ -59,7 +69,7 @@ class FlUpdater {
   /// Optional per-instance override for diagnostic logging.
   final bool? _enableLogging;
 
-  final RemoteConfigService _remoteConfigService;
+  final UpdateService _updateService;
   final FlUpdaterSnoozeStore _snoozeStore;
 
   /// Clears any active snooze state from local storage.
@@ -72,10 +82,10 @@ class FlUpdater {
     await _snoozeStore.clear();
   }
 
-  /// Fetches Firebase Remote Config and computes the current [UpdateInfo].
+  /// Fetches the update config from the provider and computes the current [UpdateInfo].
   ///
   /// - [snoozeDuration]: How long a soft update remains snoozed when dismissed.
-  /// - [minimumFetchInterval]: Throttling duration for Remote Config fetches.
+  /// - [minimumFetchInterval]: Throttling duration for config fetches (honoured by providers that support it).
   /// - [enabled]: Global gate for the check. Defaults to `!kDebugMode` to avoid
   ///   unintended fetches during local development; pass `true` explicitly to
   ///   test in debug mode, or `false` to disable checking entirely.
@@ -84,10 +94,10 @@ class FlUpdater {
   /// - [enableLogging]: Whether to emit diagnostic logs for this check.
   /// - [iosAppId]: The Apple App Store numeric ID (e.g. `'123456789'`).
   /// - [androidPackageId]: The Google Play Store package name (defaults to host app's package name if omitted).
-  /// - [flavor]: The build flavor to scope the `fl_updater_config` parameter to.
+  /// - [flavor]: The build flavor to scope the `fl_updater_config` JSON to.
   ///   Defaults to Flutter's built-in [appFlavor]. See [FlUpdaterWrapper.platform]
   ///   for the JSON schema this looks up and how [flavor] and [platform] combine.
-  /// - [platform]: The platform to scope the `fl_updater_config` parameter to.
+  /// - [platform]: The platform to scope the `fl_updater_config` JSON to.
   ///   Defaults to the current platform (`'android'` / `'ios'`).
   Future<UpdateInfo> checkForUpdate({
     Duration snoozeDuration = const Duration(days: 3),
@@ -100,7 +110,7 @@ class FlUpdater {
     String? flavor = appFlavor,
     String? platform,
   }) {
-    return _remoteConfigService.checkForUpdate(
+    return _updateService.checkForUpdate(
       snoozeDuration: snoozeDuration,
       minimumFetchInterval: minimumFetchInterval,
       enabled: enabled,
@@ -170,15 +180,13 @@ class FlUpdater {
     );
   }
 
-  /// Listens to real-time Firebase Remote Config changes.
-  ///
-  /// When the `fl_updater_config` parameter is published in the Firebase
-  /// Console, activates the updated config and invokes [onConfigUpdated].
+  /// Listens to provider push updates, invoking [onConfigUpdated] on each.
+  /// Returns `null` when the provider does not support push.
   StreamSubscription<dynamic>? listenForUpdates(
     Future<void> Function() onConfigUpdated, {
     bool? enableLogging,
   }) {
-    return _remoteConfigService.listenForUpdates(
+    return _updateService.listenForUpdates(
       onConfigUpdated,
       enableLogging: enableLogging ?? _enableLogging,
     );

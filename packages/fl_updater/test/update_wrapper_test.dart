@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -8,7 +7,8 @@ import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fl_updater/fl_updater.dart';
 import 'package:fl_updater/src/services/fl_updater_platform_interface.dart';
-import 'package:fl_updater/src/services/remote_config_service.dart';
+import 'package:fl_updater/src/services/update_service.dart';
+import 'fake_provider.dart';
 
 class MockFlUpdaterPlatform
     with MockPlatformInterfaceMixin
@@ -25,7 +25,7 @@ class MockFlUpdaterPlatform
   }
 }
 
-class MockRemoteConfigService extends Mock implements RemoteConfigService {}
+class MockUpdateService extends Mock implements UpdateService {}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -34,13 +34,13 @@ void main() {
     registerFallbackValue(Duration.zero);
   });
 
-  late MockRemoteConfigService mockRemoteConfigService;
+  late MockUpdateService mockUpdateService;
   late MockFlUpdaterPlatform mockPlatform;
 
   setUp(() {
     SharedPreferences.setMockInitialValues({});
-    mockRemoteConfigService = MockRemoteConfigService();
-    when(() => mockRemoteConfigService.listenForUpdates(
+    mockUpdateService = MockUpdateService();
+    when(() => mockUpdateService.listenForUpdates(
           any(),
           enableLogging: any(named: 'enableLogging'),
         )).thenReturn(null);
@@ -54,7 +54,8 @@ void main() {
   ) async {
     await tester.pumpWidget(
       MaterialApp(
-        builder: (context, child) => FlUpdaterWrapper(child: child!),
+        builder: (context, child) =>
+            FlUpdaterWrapper(provider: FakeProvider(), child: child!),
         home: const Scaffold(body: Text('child content')),
       ),
     );
@@ -69,7 +70,7 @@ void main() {
       (
     tester,
   ) async {
-    when(() => mockRemoteConfigService.checkForUpdate(
+    when(() => mockUpdateService.checkForUpdate(
           snoozeDuration: any(named: 'snoozeDuration'),
           minimumFetchInterval: any(named: 'minimumFetchInterval'),
           enabled: any(named: 'enabled'),
@@ -88,10 +89,11 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         builder: (context, child) => FlUpdaterWrapper(
+          provider: FakeProvider(),
           iosAppId: '123456789',
           androidPackageId: 'com.example.app',
           enabled: true,
-          remoteConfigService: mockRemoteConfigService,
+          updateService: mockUpdateService,
           child: child!,
         ),
         home: const Scaffold(body: Text('child content')),
@@ -118,7 +120,7 @@ void main() {
     tester,
   ) async {
     final snoozeStore = FlUpdaterSnoozeStore();
-    when(() => mockRemoteConfigService.checkForUpdate(
+    when(() => mockUpdateService.checkForUpdate(
           snoozeDuration: any(named: 'snoozeDuration'),
           minimumFetchInterval: any(named: 'minimumFetchInterval'),
           enabled: any(named: 'enabled'),
@@ -135,8 +137,9 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         builder: (context, child) => FlUpdaterWrapper(
+          provider: FakeProvider(),
           enabled: true,
-          remoteConfigService: mockRemoteConfigService,
+          updateService: mockUpdateService,
           snoozeStore: snoozeStore,
           child: child!,
         ),
@@ -158,7 +161,7 @@ void main() {
     tester,
   ) async {
     final navKey = GlobalKey<NavigatorState>();
-    when(() => mockRemoteConfigService.checkForUpdate(
+    when(() => mockUpdateService.checkForUpdate(
           snoozeDuration: any(named: 'snoozeDuration'),
           minimumFetchInterval: any(named: 'minimumFetchInterval'),
           enabled: any(named: 'enabled'),
@@ -176,9 +179,10 @@ void main() {
       MaterialApp(
         navigatorKey: navKey,
         builder: (context, child) => FlUpdaterWrapper(
+          provider: FakeProvider(),
           navigatorKey: navKey,
           enabled: true,
-          remoteConfigService: mockRemoteConfigService,
+          updateService: mockUpdateService,
           child: child!,
         ),
         home: const Scaffold(body: Text('child content')),
@@ -200,7 +204,7 @@ void main() {
     await snoozeStore.snooze('2.0.0', const Duration(days: 3));
     expect(await snoozeStore.isSnoozed('2.0.0'), isTrue);
 
-    when(() => mockRemoteConfigService.checkForUpdate(
+    when(() => mockUpdateService.checkForUpdate(
           snoozeDuration: any(named: 'snoozeDuration'),
           minimumFetchInterval: any(named: 'minimumFetchInterval'),
           enabled: any(named: 'enabled'),
@@ -219,9 +223,10 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         builder: (context, child) => FlUpdaterWrapper(
+          provider: FakeProvider(),
           enabled: true,
           clearSnoozeInDebugMode: true,
-          remoteConfigService: mockRemoteConfigService,
+          updateService: mockUpdateService,
           snoozeStore: snoozeStore,
           child: child!,
         ),
@@ -246,9 +251,10 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         builder: (context, child) => FlUpdaterWrapper(
+          provider: FakeProvider(),
           enabled: false,
           clearSnoozeInDebugMode: true,
-          remoteConfigService: mockRemoteConfigService,
+          updateService: mockUpdateService,
           snoozeStore: snoozeStore,
           child: child!,
         ),
@@ -258,12 +264,12 @@ void main() {
     await tester.pumpAndSettle();
 
     // enabled takes first precedence: the wrapper never even calls into
-    // RemoteConfigService.checkForUpdate, so clearSnoozeInDebugMode's
+    // UpdateService.checkForUpdate, so clearSnoozeInDebugMode's
     // pre-clear (which runs before that call) never happens either, and
     // the real-time listener is never set up.
     expect(await snoozeStore.isSnoozed('2.0.0'), isTrue);
     expect(find.byType(AlertDialog), findsNothing);
-    verifyNever(() => mockRemoteConfigService.checkForUpdate(
+    verifyNever(() => mockUpdateService.checkForUpdate(
           snoozeDuration: any(named: 'snoozeDuration'),
           minimumFetchInterval: any(named: 'minimumFetchInterval'),
           enabled: any(named: 'enabled'),
@@ -273,7 +279,7 @@ void main() {
           flavor: any(named: 'flavor'),
           platform: any(named: 'platform'),
         ));
-    verifyNever(() => mockRemoteConfigService.listenForUpdates(
+    verifyNever(() => mockUpdateService.listenForUpdates(
           any(),
           enableLogging: any(named: 'enableLogging'),
         ));
@@ -284,14 +290,14 @@ void main() {
       (
     tester,
   ) async {
-    final controller = StreamController<RemoteConfigUpdate>.broadcast();
+    final controller = StreamController<void>.broadcast();
     addTearDown(controller.close);
 
-    when(() => mockRemoteConfigService.listenForUpdates(
+    when(() => mockUpdateService.listenForUpdates(
           any(),
           enableLogging: any(named: 'enableLogging'),
         )).thenAnswer((invocation) => controller.stream.listen((_) {}));
-    when(() => mockRemoteConfigService.checkForUpdate(
+    when(() => mockUpdateService.checkForUpdate(
           snoozeDuration: any(named: 'snoozeDuration'),
           minimumFetchInterval: any(named: 'minimumFetchInterval'),
           enabled: any(named: 'enabled'),
@@ -315,8 +321,9 @@ void main() {
           setState = setter;
           return MaterialApp(
             builder: (context, child) => FlUpdaterWrapper(
+              provider: FakeProvider(),
               enabled: enabled,
-              remoteConfigService: mockRemoteConfigService,
+              updateService: mockUpdateService,
               child: child!,
             ),
             home: const Scaffold(body: Text('child content')),
@@ -340,7 +347,7 @@ void main() {
     tester,
   ) async {
     Future<void> Function()? updateCallback;
-    when(() => mockRemoteConfigService.listenForUpdates(
+    when(() => mockUpdateService.listenForUpdates(
           any(),
           enableLogging: any(named: 'enableLogging'),
         )).thenAnswer((invocation) {
@@ -349,7 +356,7 @@ void main() {
       return null;
     });
 
-    when(() => mockRemoteConfigService.checkForUpdate(
+    when(() => mockUpdateService.checkForUpdate(
           snoozeDuration: any(named: 'snoozeDuration'),
           minimumFetchInterval: any(named: 'minimumFetchInterval'),
           enabled: any(named: 'enabled'),
@@ -369,7 +376,7 @@ void main() {
     await snoozeStore.snooze('2.0.0', const Duration(days: 3));
     expect(await snoozeStore.isSnoozed('2.0.0'), isTrue);
 
-    when(() => mockRemoteConfigService.evaluateActiveConfig(
+    when(() => mockUpdateService.evaluateActiveConfig(
           iosAppId: any(named: 'iosAppId'),
           androidPackageId: any(named: 'androidPackageId'),
           flavor: any(named: 'flavor'),
@@ -385,8 +392,9 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         builder: (context, child) => FlUpdaterWrapper(
+          provider: FakeProvider(),
           enabled: true,
-          remoteConfigService: mockRemoteConfigService,
+          updateService: mockUpdateService,
           snoozeStore: snoozeStore,
           child: child!,
         ),
@@ -407,7 +415,7 @@ void main() {
     expect(await snoozeStore.isSnoozed('2.0.0'), isFalse);
 
     // Re-check evaluated active config immediately and presented the dialog
-    verify(() => mockRemoteConfigService.evaluateActiveConfig(
+    verify(() => mockUpdateService.evaluateActiveConfig(
           iosAppId: any(named: 'iosAppId'),
           androidPackageId: any(named: 'androidPackageId'),
           flavor: any(named: 'flavor'),
@@ -416,5 +424,25 @@ void main() {
           enableLogging: any(named: 'enableLogging'),
         )).called(1);
     expect(find.byType(AlertDialog), findsOneWidget);
+  });
+
+  testWidgets(
+      'provider without a changes stream + listenForRealtimeUpdates does not crash',
+      (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) => FlUpdaterWrapper(
+          provider: FakeProvider(), // changes == null
+          enabled: true,
+          listenForRealtimeUpdates: true,
+          child: child!,
+        ),
+        home: const Scaffold(body: Text('child content')),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('child content'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }

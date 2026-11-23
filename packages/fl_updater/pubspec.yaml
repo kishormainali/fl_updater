@@ -1,5 +1,5 @@
 name: fl_updater
-description: "Firebase Remote Config-driven app update dialog with automatic wrapper, snoozable soft updates, and native App/Play Store opening."
+description: "Config-driven app update dialog with pluggable config providers, automatic wrapper, snoozable soft updates, and native App/Play Store opening."
 version: 0.2.0
 homepage: https://github.com/kishormainali/fl_updater
 repository: https://github.com/kishormainali/fl_updater
@@ -8,7 +8,6 @@ issue_tracker: https://github.com/kishormainali/fl_updater/issues
 topics:
   - app-update
   - remote-config
-  - firebase
   - in-app-update
   - updater
 
@@ -22,7 +21,6 @@ dependencies:
   flutter:
     sdk: flutter
   plugin_platform_interface: ^2.1.8
-  firebase_remote_config: ^6.5.6
   shared_preferences: ^2.5.5
   package_info_plus: ^10.2.1
   fp_logger: ^3.1.5

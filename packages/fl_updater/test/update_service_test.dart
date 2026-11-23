@@ -1,15 +1,13 @@
 import 'dart:async';
 
-import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mocktail/mocktail.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fl_updater/src/models/update_status.dart';
-import 'package:fl_updater/src/services/remote_config_service.dart';
+import 'package:fl_updater/src/services/update_service.dart';
 import 'package:fl_updater/src/services/snooze_store.dart';
 
-class MockFirebaseRemoteConfig extends Mock implements FirebaseRemoteConfig {}
+import 'fake_provider.dart';
 
 /// Captures stdout writes made via `print()` — what `package:fp_logger`
 /// emits through internally — by running [body] inside a zone with a
@@ -28,19 +26,6 @@ Future<List<String>> _captureLogs(FutureOr<void> Function() body) async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  setUpAll(() {
-    // Needed so mocktail knows how to match `any()`/non-stubbed positional
-    // RemoteConfigSettings arguments passed to setConfigSettings().
-    registerFallbackValue(
-      RemoteConfigSettings(
-        fetchTimeout: const Duration(minutes: 1),
-        minimumFetchInterval: const Duration(hours: 1),
-      ),
-    );
-  });
-
-  late MockFirebaseRemoteConfig mockRemoteConfig;
-
   setUp(() {
     SharedPreferences.setMockInitialValues({});
 
@@ -56,15 +41,6 @@ void main() {
       buildNumber: '1',
       buildSignature: '',
     );
-
-    mockRemoteConfig = MockFirebaseRemoteConfig();
-    when(() => mockRemoteConfig.setConfigSettings(any()))
-        .thenAnswer((_) async {});
-    when(() => mockRemoteConfig.setDefaults(any())).thenAnswer((_) async {});
-    when(() => mockRemoteConfig.activate()).thenAnswer((_) async => true);
-    when(() => mockRemoteConfig.getString(any())).thenReturn('');
-    when(() => mockRemoteConfig.onConfigUpdated)
-        .thenAnswer((_) => const Stream.empty());
   });
 
   // flutter test runs in JIT/debug mode, so kDebugMode is true here —
@@ -75,12 +51,11 @@ void main() {
   test(
       'checkForUpdate returns soft when the fetched latest_version is newer than installed',
       () async {
-    when(() => mockRemoteConfig.fetchAndActivate())
-        .thenAnswer((_) async => true);
-    when(() => mockRemoteConfig.getString('fl_updater_config'))
-        .thenReturn('{"latest_version": "2.0.0"}');
+    final provider = FakeProvider(
+        fetched: '{"latest_version": "2.0.0"}',
+        active: '{"latest_version": "2.0.0"}');
 
-    final service = RemoteConfigService(remoteConfig: mockRemoteConfig);
+    final service = UpdateService(provider: provider);
 
     final info = await service.checkForUpdate(enabled: true);
 
@@ -92,28 +67,23 @@ void main() {
   test(
       'checkForUpdate downgrades soft to none when the latest version is already snoozed',
       () async {
-    when(() => mockRemoteConfig.fetchAndActivate())
-        .thenAnswer((_) async => true);
-    when(() => mockRemoteConfig.getString('fl_updater_config'))
-        .thenReturn('{"latest_version": "2.0.0"}');
+    final provider = FakeProvider(
+        fetched: '{"latest_version": "2.0.0"}',
+        active: '{"latest_version": "2.0.0"}');
 
     final snoozeStore = FlUpdaterSnoozeStore();
     await snoozeStore.snooze('2.0.0', const Duration(days: 3));
 
-    final service = RemoteConfigService(
-        remoteConfig: mockRemoteConfig, snoozeStore: snoozeStore);
+    final service = UpdateService(provider: provider, snoozeStore: snoozeStore);
 
     final info = await service.checkForUpdate(enabled: true);
 
     expect(info.status, UpdateStatus.none);
   });
 
-  test('checkForUpdate fails open to none when fetchAndActivate throws',
-      () async {
-    when(() => mockRemoteConfig.fetchAndActivate())
-        .thenThrow(Exception('network error'));
-
-    final service = RemoteConfigService(remoteConfig: mockRemoteConfig);
+  test('checkForUpdate fails open to none when fetch throws', () async {
+    final service = UpdateService(
+        provider: FakeProvider(fetchError: Exception('network error')));
 
     final info = await service.checkForUpdate(enabled: true);
 
@@ -123,7 +93,7 @@ void main() {
   test(
       'checkForUpdate skips the fetch and returns none in debug mode by default',
       () async {
-    final service = RemoteConfigService();
+    final service = UpdateService(provider: FakeProvider());
 
     final info = await service.checkForUpdate();
 
@@ -133,7 +103,7 @@ void main() {
   test(
       'checkForUpdate passes iosAppId/androidPackageId through even when gated',
       () async {
-    final service = RemoteConfigService();
+    final service = UpdateService(provider: FakeProvider());
 
     final info = await service.checkForUpdate(
       iosAppId: '123',
@@ -147,12 +117,11 @@ void main() {
   test(
       'checkForUpdate fetches latest_version and min_version from the fl_updater_config JSON',
       () async {
-    when(() => mockRemoteConfig.fetchAndActivate())
-        .thenAnswer((_) async => true);
-    when(() => mockRemoteConfig.getString('fl_updater_config'))
-        .thenReturn('{"latest_version": "2.0.0", "min_version": "1.5.0"}');
+    final provider = FakeProvider(
+        fetched: '{"latest_version": "2.0.0", "min_version": "1.5.0"}',
+        active: '{"latest_version": "2.0.0", "min_version": "1.5.0"}');
 
-    final service = RemoteConfigService(remoteConfig: mockRemoteConfig);
+    final service = UpdateService(provider: provider);
 
     final info = await service.checkForUpdate(
       enabled: true,
@@ -174,12 +143,11 @@ void main() {
       buildSignature: '',
     );
 
-    when(() => mockRemoteConfig.fetchAndActivate())
-        .thenAnswer((_) async => true);
-    when(() => mockRemoteConfig.getString('fl_updater_config')).thenReturn(
-        '{"latest_version": "1.0.0+15", "min_version": "1.0.0+10"}');
+    final provider = FakeProvider(
+        fetched: '{"latest_version": "1.0.0+15", "min_version": "1.0.0+10"}',
+        active: '{"latest_version": "1.0.0+15", "min_version": "1.0.0+10"}');
 
-    final service = RemoteConfigService(remoteConfig: mockRemoteConfig);
+    final service = UpdateService(provider: provider);
 
     final info = await service.checkForUpdate(enabled: true);
 
@@ -190,12 +158,11 @@ void main() {
   test(
       'checkForUpdate logs the fetched config JSON pretty-printed (indented, multi-line) '
       'rather than as one raw minified line', () async {
-    when(() => mockRemoteConfig.fetchAndActivate())
-        .thenAnswer((_) async => true);
-    when(() => mockRemoteConfig.getString('fl_updater_config'))
-        .thenReturn('{"latest_version": "2.0.0", "min_version": "1.5.0"}');
+    final provider = FakeProvider(
+        fetched: '{"latest_version": "2.0.0", "min_version": "1.5.0"}',
+        active: '{"latest_version": "2.0.0", "min_version": "1.5.0"}');
 
-    final service = RemoteConfigService(remoteConfig: mockRemoteConfig);
+    final service = UpdateService(provider: provider);
 
     final logs = await _captureLogs(() async {
       await service.checkForUpdate(enabled: true, enableLogging: true);
@@ -211,13 +178,13 @@ void main() {
   });
 
   test('checkForUpdate uses the flavor entry when one matches', () async {
-    when(() => mockRemoteConfig.fetchAndActivate())
-        .thenAnswer((_) async => true);
-    when(() => mockRemoteConfig.getString('fl_updater_config'))
-        .thenReturn('{"latest_version": "1.1.0", "min_version": "5.0.0", '
+    final provider = FakeProvider(
+        fetched: '{"latest_version": "1.1.0", "min_version": "5.0.0", '
+            '"flavors": {"dev": {"latest_version": "9.9.9"}}}',
+        active: '{"latest_version": "1.1.0", "min_version": "5.0.0", '
             '"flavors": {"dev": {"latest_version": "9.9.9"}}}');
 
-    final service = RemoteConfigService(remoteConfig: mockRemoteConfig);
+    final service = UpdateService(provider: provider);
 
     final info = await service.checkForUpdate(enabled: true, flavor: 'dev');
 
@@ -231,12 +198,13 @@ void main() {
   test(
       'checkForUpdate falls back to top-level values when the flavor has no matching entry',
       () async {
-    when(() => mockRemoteConfig.fetchAndActivate())
-        .thenAnswer((_) async => true);
-    when(() => mockRemoteConfig.getString('fl_updater_config')).thenReturn(
-        '{"latest_version": "2.0.0", "flavors": {"staging": {"latest_version": "9.9.9"}}}');
+    final provider = FakeProvider(
+        fetched:
+            '{"latest_version": "2.0.0", "flavors": {"staging": {"latest_version": "9.9.9"}}}',
+        active:
+            '{"latest_version": "2.0.0", "flavors": {"staging": {"latest_version": "9.9.9"}}}');
 
-    final service = RemoteConfigService(remoteConfig: mockRemoteConfig);
+    final service = UpdateService(provider: provider);
 
     final info = await service.checkForUpdate(enabled: true, flavor: 'dev');
 
@@ -244,12 +212,13 @@ void main() {
   });
 
   test('checkForUpdate uses an explicit platform override', () async {
-    when(() => mockRemoteConfig.fetchAndActivate())
-        .thenAnswer((_) async => true);
-    when(() => mockRemoteConfig.getString('fl_updater_config')).thenReturn(
-        '{"latest_version": "1.0.0", "platforms": {"ios": {"latest_version": "5.0.0"}}}');
+    final provider = FakeProvider(
+        fetched:
+            '{"latest_version": "1.0.0", "platforms": {"ios": {"latest_version": "5.0.0"}}}',
+        active:
+            '{"latest_version": "1.0.0", "platforms": {"ios": {"latest_version": "5.0.0"}}}');
 
-    final service = RemoteConfigService(remoteConfig: mockRemoteConfig);
+    final service = UpdateService(provider: provider);
 
     final info = await service.checkForUpdate(enabled: true, platform: 'ios');
 
@@ -257,76 +226,31 @@ void main() {
   });
 
   test(
-      'listenForUpdates activates config and invokes callback when the config key updates',
-      () async {
-    final controller = StreamController<RemoteConfigUpdate>();
-    when(() => mockRemoteConfig.onConfigUpdated)
-        .thenAnswer((_) => controller.stream);
-
-    var callbackCalled = false;
-    final service = RemoteConfigService(remoteConfig: mockRemoteConfig);
-    final sub = service.listenForUpdates(() async {
-      callbackCalled = true;
-    });
-
-    controller.add(RemoteConfigUpdate({'fl_updater_config'}));
-    await pumpEventQueue();
-
-    expect(callbackCalled, isTrue);
-    verify(() => mockRemoteConfig.activate()).called(1);
-
-    await sub?.cancel();
-    await controller.close();
-  });
-
-  test('listenForUpdates ignores events for unrelated keys', () async {
-    final controller = StreamController<RemoteConfigUpdate>();
-    when(() => mockRemoteConfig.onConfigUpdated)
-        .thenAnswer((_) => controller.stream);
-
-    var callbackCalled = false;
-    final service = RemoteConfigService(remoteConfig: mockRemoteConfig);
-    final sub = service.listenForUpdates(() async {
-      callbackCalled = true;
-    });
-
-    controller.add(RemoteConfigUpdate({'some_unrelated_key'}));
-    await pumpEventQueue();
-
-    expect(callbackCalled, isFalse);
-    verifyNever(() => mockRemoteConfig.activate());
-
-    await sub?.cancel();
-    await controller.close();
-  });
-
-  test(
       'evaluateActiveConfig reads already active Remote Config values without fetch',
       () async {
-    when(() => mockRemoteConfig.getString('fl_updater_config'))
-        .thenReturn('{"latest_version": "2.1.0", "min_version": "1.8.0"}');
+    final provider = FakeProvider(
+        fetched: '{"latest_version": "2.1.0", "min_version": "1.8.0"}',
+        active: '{"latest_version": "2.1.0", "min_version": "1.8.0"}');
 
-    final service = RemoteConfigService(remoteConfig: mockRemoteConfig);
+    final service = UpdateService(provider: provider);
     final info = await service.evaluateActiveConfig();
 
     expect(info.latestVersion, '2.1.0');
     expect(info.status, UpdateStatus.force); // installed is 1.0.0 < 1.8.0
-    verifyNever(() => mockRemoteConfig.fetchAndActivate());
+    expect(provider.fetchCount, 0);
   });
 
   test('evaluateActiveConfig clears snooze store when clearSnooze is true',
       () async {
-    when(() => mockRemoteConfig.getString('fl_updater_config'))
-        .thenReturn('{"latest_version": "2.1.0", "min_version": "0.0.0"}');
+    final provider = FakeProvider(
+        fetched: '{"latest_version": "2.1.0", "min_version": "0.0.0"}',
+        active: '{"latest_version": "2.1.0", "min_version": "0.0.0"}');
 
     final snoozeStore = FlUpdaterSnoozeStore();
     await snoozeStore.snooze('2.1.0', const Duration(days: 3));
     expect(await snoozeStore.isSnoozed('2.1.0'), isTrue);
 
-    final service = RemoteConfigService(
-      remoteConfig: mockRemoteConfig,
-      snoozeStore: snoozeStore,
-    );
+    final service = UpdateService(provider: provider, snoozeStore: snoozeStore);
     final info = await service.evaluateActiveConfig(clearSnooze: true);
 
     expect(info.status,
@@ -335,15 +259,60 @@ void main() {
   });
 
   test('evaluateActiveConfig applies the flavor entry fallback', () async {
-    when(() => mockRemoteConfig.getString('fl_updater_config')).thenReturn(
-        '{"latest_version": "1.0.0", "min_version": "1.0.0", '
-        '"flavors": {"staging": {"latest_version": "3.0.0", "min_version": "2.8.0"}}}');
+    final provider = FakeProvider(
+        fetched: '{"latest_version": "1.0.0", "min_version": "1.0.0", '
+            '"flavors": {"staging": {"latest_version": "3.0.0", "min_version": "2.8.0"}}}',
+        active: '{"latest_version": "1.0.0", "min_version": "1.0.0", '
+            '"flavors": {"staging": {"latest_version": "3.0.0", "min_version": "2.8.0"}}}');
 
-    final service = RemoteConfigService(remoteConfig: mockRemoteConfig);
+    final service = UpdateService(provider: provider);
     final info = await service.evaluateActiveConfig(
         clearSnooze: false, flavor: 'staging');
 
     expect(info.latestVersion, '3.0.0');
     expect(info.status, UpdateStatus.force); // installed 1.0.0 < min 2.8.0
+  });
+
+  test('checkForUpdate falls back to the cached config when fetch throws',
+      () async {
+    final provider = FakeProvider(
+      fetchError: Exception('offline'),
+      active: '{"latest_version": "2.0.0"}',
+    );
+    final info =
+        await UpdateService(provider: provider).checkForUpdate(enabled: true);
+    expect(info.status, UpdateStatus.soft);
+    expect(info.latestVersion, '2.0.0');
+  });
+
+  test('checkForUpdate yields none for null, empty and malformed config',
+      () async {
+    for (final raw in <String?>[null, '', '{not json']) {
+      final info = await UpdateService(
+        provider: FakeProvider(fetched: raw, active: raw),
+      ).checkForUpdate(enabled: true);
+      expect(info.status, UpdateStatus.none, reason: 'raw=$raw');
+    }
+  });
+
+  test('listenForUpdates returns null when the provider has no changes stream',
+      () {
+    final sub =
+        UpdateService(provider: FakeProvider()).listenForUpdates(() async {});
+    expect(sub, isNull);
+  });
+
+  test('listenForUpdates invokes the callback for each provider change',
+      () async {
+    final provider = FakeProvider(push: true);
+    var calls = 0;
+    final sub = UpdateService(provider: provider).listenForUpdates(() async {
+      calls++;
+    });
+    provider.emitChange();
+    provider.emitChange();
+    await pumpEventQueue();
+    expect(calls, 2);
+    await sub?.cancel();
   });
 }
