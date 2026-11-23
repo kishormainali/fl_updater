@@ -3,8 +3,11 @@ name: Publish to pub.dev
 on:
   push:
     tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+*'
-      - '[0-9]+.[0-9]+.[0-9]+*'
+      # Per-package tags, e.g. fl_updater-v0.2.1 / fl_updater_firebase-v0.2.0.
+      # Set the same patterns (`<package>-v{{version}}`) in each package's
+      # pub.dev automated-publishing settings.
+      - 'fl_updater-v[0-9]+.[0-9]+.[0-9]+*'
+      - 'fl_updater_firebase-v[0-9]+.[0-9]+.[0-9]+*'
 
 permissions:
   id-token: write # Required for pub.dev OIDC authentication
@@ -43,11 +46,8 @@ jobs:
         run: |
           for d in packages/*; do (cd "$d" && flutter test) || exit 1; done
 
-      # Core first: fl_updater_firebase depends on it.
-      - name: Publish fl_updater
-        working-directory: packages/fl_updater
-        run: dart pub publish --force
-
-      - name: Publish fl_updater_firebase
-        working-directory: packages/fl_updater_firebase
-        run: dart pub publish --force
+      - name: Publish package named by the tag
+        run: |
+          pkg="${GITHUB_REF_NAME%%-v*}"
+          cd "packages/$pkg"
+          dart pub publish --force

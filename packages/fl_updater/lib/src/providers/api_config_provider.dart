@@ -1,7 +1,9 @@
 import 'config_provider.dart';
 
 /// Provider backed by a user-supplied async callback, e.g.
-/// `ApiConfigProvider(fetch: () async => (await dio.get(url)).data)`.
+/// `ApiConfigProvider(fetch: () async => (await dio.get<String>(url)).data!)`.
+/// If your client decodes JSON into a `Map`, return `jsonEncode(map)` — a
+/// non-String result throws and the check silently yields no update.
 ///
 /// The callback must return the `fl_updater_config` JSON string. No push
 /// support: the config is re-fetched on each update check.
