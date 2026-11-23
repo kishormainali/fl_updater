@@ -29,8 +29,8 @@ void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
 
-    // PackageInfo.fromPlatform() is called before the injected
-    // FirebaseRemoteConfig is ever touched, so it must be mocked too —
+    // PackageInfo.fromPlatform() is called before the provider is ever
+    // touched, so it must be mocked too —
     // package_info_plus ships an official @visibleForTesting hook for
     // exactly this (see package_info_plus-10.2.1/lib/package_info_plus.dart)
     // rather than us reimplementing its method-channel wire format.

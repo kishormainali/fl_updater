@@ -44,7 +44,7 @@ class UpdateService {
 
   /// Combines [PackageInfo.version] and [PackageInfo.buildNumber] into the
   /// `x.x.x+x` form [VersionComparator] expects, so an installed build is
-  /// compared correctly against a Remote Config `min_version`/`latest_version`
+  /// compared correctly against a config `min_version`/`latest_version`
   /// that specifies a build number. [PackageInfo.version] alone never
   /// contains the build number — leaving it off would make every install
   /// compare as build `0`, incorrectly forcing an update whenever the config
@@ -171,7 +171,7 @@ class UpdateService {
     }
   }
 
-  /// Evaluates the already-active values in Firebase Remote Config without performing a network fetch.
+  /// Evaluates the provider's current (already-active) config without performing a network fetch.
   ///
   /// When [clearSnooze] is `true` (default for real-time updates), clears the snooze store
   /// so that newly published updates prompt the user immediately.

@@ -4,7 +4,7 @@
 [![pub points](https://img.shields.io/pub/points/fl_updater?color=2E8B57)](https://pub.dev/packages/fl_updater/score)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
-A lightweight, cost-conscious Flutter plugin for **Firebase Remote Config-driven app updates**. Supports automatic launch checks, soft updates with per-version snoozing, non-dismissible force updates, and native App Store / Google Play Store redirection.
+A lightweight, cost-conscious Flutter plugin for **remote-config-driven app updates**, with pluggable config providers: Firebase Remote Config (via [`fl_updater_firebase`](https://pub.dev/packages/fl_updater_firebase)) or your own API. Supports automatic launch checks, soft updates with per-version snoozing, non-dismissible force updates, and native App Store / Google Play Store redirection.
 
 ---
 
@@ -16,9 +16,9 @@ A lightweight, cost-conscious Flutter plugin for **Firebase Remote Config-driven
   - **Soft updates**: Optional update prompt with a "Later" button.
   - **Force updates**: Mandatory blocking dialog (`canPop: false`) when the installed version is below `min_version`.
 - ⏰ **Smart Snoozing**: Dismissing a soft update snoozes it for a configurable duration (default: 3 days). Snooze is scoped per version, so releasing a newer update immediately prompts the user again.
-- 💰 **Cost-Conscious Architecture**: Designed for Firebase Remote Config usage-based pricing:
-  - **Debug mode disabled by default**: Prevents development hot restarts from consuming Remote Config quotas.
-  - **Cached fetches**: Configurable `minimumFetchInterval` (default: 1 hour) ensures throttled network requests.
+- 💰 **Cost-Conscious Architecture**: Designed for usage-based config backends (e.g. Firebase Remote Config):
+  - **Debug mode disabled by default**: Prevents development hot restarts from consuming backend quota.
+  - **Cached fetches**: Configurable `minimumFetchInterval` (default: 1 hour) throttles network requests on providers that support it (Firebase; ignored by `ApiConfigProvider`).
 - 🏬 **Native Store Redirection**: Opens the platform's native store page (Apple App Store on iOS, Google Play Store on Android).
 - 🎨 **Fully Customizable UI**: Style the built-in Material dialog with `FlUpdaterDialogStyle`, or supply your own custom UI via `dialogBuilder`.
 
@@ -59,9 +59,9 @@ The API provider has no push updates; it re-fetches on each check. Implement
 
 ---
 
-## 🔧 Firebase Remote Config Setup
+## 🔧 Config Setup (Firebase Remote Config example)
 
-`fl_updater` reads a single JSON-structured String parameter, `fl_updater_config`, from **Firebase Console → Build → Remote Config**. This section walks through setting it up from scratch, plus optional platform- and flavor-targeting layers.
+The config is one JSON document (`fl_updater_config`) whose schema is the same for every provider — with `ApiConfigProvider`, return this JSON from your endpoint and skip the Firebase Console steps. With `fl_updater_firebase`, `fl_updater` reads a single JSON-structured String parameter, `fl_updater_config`, from **Firebase Console → Build → Remote Config**. This section walks through setting it up from scratch, plus optional platform- and flavor-targeting layers.
 
 > In-app update prompts only make sense for the build that's actually published to the App Store / Play Store — a dev/staging/internal build isn't distributed there, so there's nothing for it to "update" to. This guide is written with that in mind: one Firebase project, one production app. If you register multiple apps (one per build flavor) under the same Firebase project, see "Step 2 — (Optional) Different values per flavor and/or platform" below for targeting a specific one.
 
@@ -140,15 +140,13 @@ Not part of Remote Config — pass these directly to `FlUpdaterWrapper` / the im
 
 ### Step 4 — Verify it worked
 
-- Run the app with `enableLogging: true` (see "🪵 Diagnostic Logging" below) and look for the `Fetched remote config value (fl_updater_config): {...}` log line to confirm the JSON `fl_updater` actually received.
+- Run the app with `enableLogging: true` (see "🪵 Diagnostic Logging" below): the raw `fl_updater_config` JSON is logged (pretty-printed), followed by a `checkForUpdate: ... status=...` summary line.
 - Pass `enabled: true` while testing — it defaults to `!kDebugMode`, so debug builds skip fetching entirely otherwise (see "💰 Fetch Behavior & Quota Optimization" below).
-- Remote Config itself throttles fetches via `minimumFetchInterval` (default 1 hour) — repeated test runs within that window reuse the previous fetch. Lower it temporarily while iterating if a fresh publish doesn't seem to take effect.
+- With Firebase, Remote Config itself throttles fetches via `minimumFetchInterval` (default 1 hour) — repeated test runs within that window reuse the previous fetch. Lower it temporarily while iterating if a fresh publish doesn't seem to take effect.
 
 ---
 
 ## 🚀 Usage
-
-> Snippets below omit the now-required `provider:` argument on `FlUpdaterWrapper` for brevity.
 
 ### 1. Automatic Usage (Recommended)
 
@@ -165,6 +163,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       builder: (context, child) => FlUpdaterWrapper(
+        provider: provider,
         iosAppId: '123456789',
         androidPackageId: 'com.example.app', // Optional: defaults to host package
         child: child!,
@@ -217,6 +216,7 @@ Customize colors, typography, buttons, shapes, and icons using `FlUpdaterDialogS
 
 ```dart
 FlUpdaterWrapper(
+  provider: provider,
   iosAppId: '123456789',
   title: 'Exciting New Update!',
   message: 'We added new features and performance improvements.',
@@ -239,6 +239,7 @@ Replace the built-in dialog entirely with your own custom widget or bottom sheet
 
 ```dart
 FlUpdaterWrapper(
+  provider: provider,
   iosAppId: '123456789',
   dialogBuilder: (context, info, onUpdate, onLater) {
     final isForce = info.status == UpdateStatus.force;
@@ -274,6 +275,7 @@ When a **soft (optional)** update is available, tapping the "Later" button snooz
 
 ```dart
 FlUpdaterWrapper(
+  provider: provider,
   snoozeDuration: const Duration(days: 7), // Snooze for 1 week
   child: child!,
 )
@@ -285,6 +287,7 @@ You can automatically clear the snooze store on every app launch during developm
 
 ```dart
 FlUpdaterWrapper(
+  provider: provider,
   enabled: true,
   clearSnoozeInDebugMode: true, // Clears previous snoozes on app launch in debug mode
   child: child!,
@@ -306,18 +309,20 @@ await updater.clearSnooze();
 
 ## 💰 Fetch Behavior & Quota Optimization
 
-To safeguard your Firebase Remote Config quota and avoid unintended billing:
+To safeguard your backend quota (e.g. Firebase Remote Config) and avoid unintended billing:
 
-1. **Disabled in Debug Mode by Default**: `enabled` defaults to `!kDebugMode`, so Remote Config fetching is skipped entirely in debug builds and frequent hot restarts do not burn quotas. `enabled` is the global gate for both the initial check and real-time listening — pass it explicitly to override the default in either direction:
+1. **Disabled in Debug Mode by Default**: `enabled` defaults to `!kDebugMode`, so config fetching is skipped entirely in debug builds and frequent hot restarts do not burn quotas. `enabled` is the global gate for both the initial check and real-time listening — pass it explicitly to override the default in either direction:
    ```dart
    FlUpdaterWrapper(
+     provider: provider,
      enabled: true, // Opt-in for debug/staging builds
      child: child!,
    )
    ```
-2. **Fetch Interval Throttling**: The `minimumFetchInterval` (default: 1 hour) prevents frequent network queries. Repeated checks within this duration use the Firebase cached values.
+2. **Fetch Interval Throttling**: The `minimumFetchInterval` (default: 1 hour) is passed to the provider. `FirebaseConfigProvider` uses it to avoid frequent network queries (repeated checks reuse cached values); `ApiConfigProvider` ignores it and calls your callback on every check — add caching in your callback if needed.
    ```dart
    FlUpdaterWrapper(
+     provider: provider,
      minimumFetchInterval: const Duration(minutes: 30),
      child: child!,
    )
@@ -325,9 +330,9 @@ To safeguard your Firebase Remote Config quota and avoid unintended billing:
 
 ---
 
-## ⚡ Real-Time Remote Config Updates
+## ⚡ Real-Time Config Updates
 
-`fl_updater` listens to Firebase Remote Config updates in real time via `onConfigUpdated`:
+Real-time updates need a provider with push support (`FlUpdaterConfigProvider.changes != null`). `FirebaseConfigProvider` has it, via `onConfigUpdated`; `ApiConfigProvider` does not, so `listenForRealtimeUpdates` is a no-op there. With Firebase:
 
 - When you publish changes to `fl_updater_config` in the Firebase Console, the new config is activated **immediately**.
 - The update status is evaluated without waiting for `minimumFetchInterval` to expire.
@@ -338,6 +343,7 @@ Real-time updates are enabled by default (`listenForRealtimeUpdates: true`). You
 
 ```dart
 FlUpdaterWrapper(
+  provider: provider,
   listenForRealtimeUpdates: false, // Only check on app launch
   child: child!,
 )
@@ -362,6 +368,7 @@ void main() {
 
 ```dart
 FlUpdaterWrapper(
+  provider: provider,
   enableLogging: true,
   child: child!,
 )

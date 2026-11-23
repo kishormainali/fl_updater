@@ -14,7 +14,7 @@ class UpdateInfo {
     this.androidPackageId,
   });
 
-  /// Constructs an [UpdateInfo] from the raw `fl_updater_config` Remote Config
+  /// Constructs an [UpdateInfo] from the raw `fl_updater_config`
   /// parameter value in [json] — a JSON object shaped like:
   /// ```json
   /// {
@@ -183,7 +183,7 @@ class UpdateInfo {
   /// The currently installed version of the application.
   final String currentVersion;
 
-  /// The latest available version retrieved from Remote Config.
+  /// The latest available version retrieved from the config provider.
   final String latestVersion;
 
   /// The determined update requirement status ([UpdateStatus.none],

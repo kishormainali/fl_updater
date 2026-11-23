@@ -76,7 +76,7 @@ class FlUpdaterWrapper extends StatefulWidget {
   /// Defaults to the host application's package name if omitted.
   final String? androidPackageId;
 
-  /// The build flavor to scope the `fl_updater_config` Remote Config parameter to,
+  /// The build flavor to scope the `fl_updater_config` JSON to,
   /// e.g. `'staging'`.
   ///
   /// The `fl_updater_config` parameter's value is a JSON object with top-level
@@ -88,7 +88,7 @@ class FlUpdaterWrapper extends StatefulWidget {
   /// build time), so most apps don't need to pass this explicitly.
   final String? flavor;
 
-  /// The platform to scope the `fl_updater_config` Remote Config parameter to,
+  /// The platform to scope the `fl_updater_config` JSON to,
   /// e.g. `'android'` or `'ios'`.
   ///
   /// The `fl_updater_config` parameter's value is a JSON object shaped like:
@@ -152,7 +152,7 @@ class FlUpdaterWrapper extends StatefulWidget {
   /// real-time listening).
   ///
   /// Defaults to `!kDebugMode`, so update checks run in release builds and
-  /// are skipped in debug builds, avoiding wasted Remote Config quota and
+  /// are skipped in debug builds, avoiding wasted backend quota and
   /// interrupted development flow during hot restarts. Pass `true` explicitly
   /// to test update checks in debug mode, or `false` to disable checking
   /// entirely regardless of build mode.
@@ -214,7 +214,7 @@ class _FlUpdaterWrapperState extends State<FlUpdaterWrapper> {
       _realtimeSubscription = null;
       if (widget.enableLogging ?? flUpdaterLoggingEnabled) {
         Logger.i(
-          'Real-time Remote Config updates disabled (enabled is false; set enabled: true to test in debug).',
+          'Real-time config updates disabled (enabled is false; set enabled: true to test in debug).',
           tag: flUpdaterLogTag,
         );
       }
