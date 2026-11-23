@@ -1,0 +1,41 @@
+name: fl_updater
+description: "Config-driven app update dialog with pluggable config providers, automatic wrapper, snoozable soft updates, and native App/Play Store opening."
+version: 0.2.0
+homepage: https://github.com/kishormainali/fl_updater
+repository: https://github.com/kishormainali/fl_updater
+issue_tracker: https://github.com/kishormainali/fl_updater/issues
+
+topics:
+  - app-update
+  - remote-config
+  - in-app-update
+  - updater
+
+resolution: workspace
+
+environment:
+  sdk: ^3.6.0
+  flutter: '>=3.47.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  plugin_platform_interface: ^2.1.8
+  shared_preferences: ^2.5.5
+  package_info_plus: ^10.2.1
+  fp_logger: ^3.1.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  mocktail: ^1.0.5
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: com.kishormainali.fl_updater
+        pluginClass: FlUpdaterPlugin
+      ios:
+        pluginClass: FlUpdaterPlugin

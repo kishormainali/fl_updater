@@ -6,9 +6,10 @@ import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:fl_updater/fl_updater.dart';
 import 'package:fl_updater/src/services/fl_updater_platform_interface.dart';
 import 'package:fl_updater/src/services/fl_updater_method_channel.dart';
-import 'package:fl_updater/src/services/remote_config_service.dart';
+import 'package:fl_updater/src/services/update_service.dart';
+import 'fake_provider.dart';
 
-class MockRemoteConfigService extends Mock implements RemoteConfigService {}
+class MockUpdateService extends Mock implements UpdateService {}
 
 class MockFlUpdaterPlatform
     with MockPlatformInterfaceMixin
@@ -39,10 +40,10 @@ void main() {
   test(
       'checkForUpdate returns none by default in debug mode with no injected dependencies',
       () async {
-    // No mocked platform, no mocked RemoteConfigService, no Firebase setup —
-    // this only works because RemoteConfigService gates on kDebugMode before
+    // No mocked platform, no mocked UpdateService, no Firebase setup —
+    // this only works because UpdateService gates on kDebugMode before
     // touching any platform channel (see Task 7).
-    final updater = FlUpdater();
+    final updater = FlUpdater(provider: FakeProvider());
 
     final info = await updater.checkForUpdate();
 
@@ -52,7 +53,7 @@ void main() {
   testWidgets('showUpdateDialog does nothing when status is none',
       (tester) async {
     FlUpdaterPlatform.instance = MockFlUpdaterPlatform();
-    final updater = FlUpdater();
+    final updater = FlUpdater(provider: FakeProvider());
 
     await tester.pumpWidget(
       MaterialApp(
@@ -82,7 +83,7 @@ void main() {
       (tester) async {
     final platform = MockFlUpdaterPlatform();
     FlUpdaterPlatform.instance = platform;
-    final updater = FlUpdater();
+    final updater = FlUpdater(provider: FakeProvider());
 
     await tester.pumpWidget(
       MaterialApp(
@@ -120,7 +121,7 @@ void main() {
   testWidgets('showUpdateDialog snoozes and dismisses on Later tap',
       (tester) async {
     FlUpdaterPlatform.instance = MockFlUpdaterPlatform();
-    final updater = FlUpdater();
+    final updater = FlUpdater(provider: FakeProvider());
     final snoozeStore = FlUpdaterSnoozeStore();
 
     await tester.pumpWidget(
@@ -156,7 +157,8 @@ void main() {
     await snoozeStore.snooze('2.0.0', const Duration(days: 1));
     expect(await snoozeStore.isSnoozed('2.0.0'), isTrue);
 
-    final updater = FlUpdater(snoozeStore: snoozeStore);
+    final updater =
+        FlUpdater(provider: FakeProvider(), snoozeStore: snoozeStore);
     await updater.clearSnooze();
     expect(await snoozeStore.isSnoozed('2.0.0'), isFalse);
 
@@ -167,14 +169,15 @@ void main() {
     expect(await snoozeStore.isSnoozed('2.0.0'), isFalse);
   });
 
-  test('FlUpdater.listenForUpdates delegates to RemoteConfigService', () async {
-    final mockService = MockRemoteConfigService();
+  test('FlUpdater.listenForUpdates delegates to UpdateService', () async {
+    final mockService = MockUpdateService();
     when(() => mockService.listenForUpdates(
           any(),
           enableLogging: any(named: 'enableLogging'),
         )).thenReturn(null);
 
-    final updater = FlUpdater(remoteConfigService: mockService);
+    final updater =
+        FlUpdater(provider: FakeProvider(), updateService: mockService);
     updater.listenForUpdates(() async {});
 
     verify(() => mockService.listenForUpdates(

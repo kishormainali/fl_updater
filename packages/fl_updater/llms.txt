@@ -1,0 +1,73 @@
+# fl_updater
+
+> Flutter plugin that shows an app-update dialog (soft/snoozable or blocking force update) driven by a remote JSON config, and opens the App Store / Play Store natively. Provider-agnostic: config comes from Firebase Remote Config (`fl_updater_firebase`) or your own API (`ApiConfigProvider`).
+
+This package lives in a Dart pub workspace (repo root: https://github.com/kishormainali/fl_updater) (Dart >=3.6, Flutter >=3.47):
+- `packages/fl_updater` (this package) — core: `FlUpdater`, `FlUpdaterWrapper`, `FlUpdaterConfigProvider`, `ApiConfigProvider`, `UpdateInfo`, `UpdateService`, dialogs, snooze store, native store-opening (Kotlin/Swift).
+- `packages/fl_updater_firebase` — `FirebaseConfigProvider` (depends on `firebase_remote_config`; core does not).
+- `example/` — sample app.
+
+## Usage
+
+`provider:` is required on both entry points.
+
+```dart
+// Declarative (recommended): wrap the app in MaterialApp.builder
+MaterialApp(
+  builder: (context, child) => FlUpdaterWrapper(
+    provider: FirebaseConfigProvider(), // or ApiConfigProvider(fetch: ...)
+    iosAppId: '123456789',              // required on iOS for store redirect
+    androidPackageId: 'com.example.app', // defaults to host app id
+    child: child!,
+  ),
+);
+
+// Imperative
+final updater = FlUpdater(provider: provider);
+final info = await updater.checkForUpdate();
+await updater.showUpdateDialog(context, info: info);
+```
+
+Own API (no Firebase): `ApiConfigProvider(fetch: () async => jsonString)` — the callback must return the `fl_updater_config` JSON as a `String` (use `jsonEncode` if your client decodes it). No push updates; re-fetched on each check.
+
+Custom backend: implement `FlUpdaterConfigProvider { Future<String?> fetch({Duration minimumFetchInterval}); Future<String?> current(); Stream<void>? get changes; }`. `changes` may be `null` (no push). After an event, `current()` must return the new config.
+
+## Config JSON schema (`fl_updater_config`)
+
+```json
+{
+  "min_version": "1.0.0",
+  "latest_version": "1.2.0+5",
+  "platforms": { "android": { "latest_version": "1.3.0",
+                  "flavors": { "staging": { "min_version": "1.1.1" } } } },
+  "flavors": { "staging": { "latest_version": "1.1.1" } }
+}
+```
+`min_version` / `latest_version` resolve independently, most specific first: `platforms[p].flavors[f]` → `platforms[p]` → `flavors[f]` → top level. Versions may include a build number (`x.y.z+n`). Status: installed < `min_version` → force; installed < `latest_version` → soft (snoozable, default 3 days); otherwise none.
+
+## Behaviour notes
+
+- `enabled` defaults to `!kDebugMode`; it is the master gate (no fetch, no listener when false). Pass `enabled: true` to test in debug.
+- Failures fail open: any fetch/parse error yields `UpdateStatus.none`; a fetch error falls back to `provider.current()`.
+- `flavor` defaults to Flutter's `appFlavor`; `platform` defaults to `android`/`ios`.
+- `enableLogging` (per call/instance) or `FlUpdater.enableLogging` (global) turns on `fp_logger` output under tag `fl_updater`.
+
+## Docs
+
+- [Core README](README.md): install, Firebase setup, full usage and options
+- [Firebase provider README](https://github.com/kishormainali/fl_updater/blob/main/packages/fl_updater_firebase/README.md)
+- [Design spec](https://github.com/kishormainali/fl_updater/blob/main/docs/superpowers/specs/2026-11-23-config-provider-workspace-design.md): why the provider split exists
+- [Changelog](CHANGELOG.md): breaking changes in 0.2.0
+
+## Source map
+
+- [config_provider.dart](lib/src/providers/config_provider.dart): provider interface
+- [api_config_provider.dart](lib/src/providers/api_config_provider.dart)
+- [update_service.dart](lib/src/services/update_service.dart): fetch → evaluate → snooze policy
+- [update_info.model.dart](lib/src/models/update_info.model.dart): JSON schema resolution, `UpdateInfo`
+- [update_wrapper.dart](lib/src/widgets/update_wrapper.dart): `FlUpdaterWrapper`
+- [firebase_config_provider.dart](https://github.com/kishormainali/fl_updater/blob/main/packages/fl_updater_firebase/lib/src/firebase_config_provider.dart)
+
+## Optional
+
+- Tests: run `flutter test` inside each package directory (`packages/fl_updater`, `packages/fl_updater_firebase`, `example`).

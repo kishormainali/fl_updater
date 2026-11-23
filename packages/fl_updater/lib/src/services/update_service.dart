@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show appFlavor;
 import 'package:fp_logger/fp_logger.dart';
@@ -8,31 +7,21 @@ import 'package:package_info_plus/package_info_plus.dart';
 
 import '../models/update_info.model.dart';
 import '../models/update_status.dart';
+import '../providers/config_provider.dart';
 import '../utils/logging.dart';
 import 'snooze_store.dart';
 
-class RemoteConfigService {
-  RemoteConfigService({
-    FirebaseRemoteConfig? remoteConfig,
+class UpdateService {
+  UpdateService({
+    required FlUpdaterConfigProvider provider,
     FlUpdaterSnoozeStore? snoozeStore,
     this.enableLogging,
-  })  : _providedRemoteConfig = remoteConfig,
+  })  : _provider = provider,
         _snoozeStore = snoozeStore ?? FlUpdaterSnoozeStore();
 
-  // Resolved lazily via the getter below so constructing a RemoteConfigService
-  // never touches FirebaseRemoteConfig.instance until a check actually needs
-  // it — that's what keeps the debug-mode-gated tests above free of any
-  // Firebase test setup.
-  final FirebaseRemoteConfig? _providedRemoteConfig;
+  final FlUpdaterConfigProvider _provider;
   final FlUpdaterSnoozeStore _snoozeStore;
   final bool? enableLogging;
-
-  FirebaseRemoteConfig get _remoteConfig =>
-      _providedRemoteConfig ?? FirebaseRemoteConfig.instance;
-
-  static const _configKey = 'fl_updater_config';
-
-  static const _defaultValues = {_configKey: '{}'};
 
   /// Maps [defaultTargetPlatform] to the `platforms` key used in the
   /// `fl_updater_config` JSON schema (`'android'` / `'ios'`), or `null` on
@@ -55,7 +44,7 @@ class RemoteConfigService {
 
   /// Combines [PackageInfo.version] and [PackageInfo.buildNumber] into the
   /// `x.x.x+x` form [VersionComparator] expects, so an installed build is
-  /// compared correctly against a Remote Config `min_version`/`latest_version`
+  /// compared correctly against a config `min_version`/`latest_version`
   /// that specifies a build number. [PackageInfo.version] alone never
   /// contains the build number — leaving it off would make every install
   /// compare as build `0`, incorrectly forcing an update whenever the config
@@ -112,27 +101,22 @@ class RemoteConfigService {
       final packageInfo = await PackageInfo.fromPlatform();
       final currentVersion = _currentVersion(packageInfo);
 
+      String? rawConfig;
       try {
-        await _remoteConfig.setConfigSettings(
-          RemoteConfigSettings(
-            fetchTimeout: const Duration(minutes: 1),
-            minimumFetchInterval: minimumFetchInterval,
-          ),
+        rawConfig = await _provider.fetch(
+          minimumFetchInterval: minimumFetchInterval,
         );
-        await _remoteConfig.setDefaults(_defaultValues);
-        await _remoteConfig.fetchAndActivate();
       } catch (fetchError, fetchStackTrace) {
         if (logging) {
           Logger.e(
-            'Remote config fetch threw error (evaluating active config): $fetchError',
+            'Config fetch threw error (falling back to current config): $fetchError',
             error: fetchError,
             stackTrace: fetchStackTrace,
             tag: flUpdaterLogTag,
           );
         }
+        rawConfig = await _provider.current();
       }
-
-      final rawConfig = _remoteConfig.getString(_configKey);
 
       var info = UpdateInfo.fromRemoteConfigJson(
         json: rawConfig,
@@ -171,7 +155,7 @@ class RemoteConfigService {
     } catch (error, stackTrace) {
       if (logging) {
         Logger.e(
-          'Failed to fetch remote config: $error',
+          'Failed to fetch update config: $error',
           error: error,
           stackTrace: stackTrace,
           tag: flUpdaterLogTag,
@@ -187,7 +171,7 @@ class RemoteConfigService {
     }
   }
 
-  /// Evaluates the already-active values in Firebase Remote Config without performing a network fetch.
+  /// Evaluates the provider's current (already-active) config without performing a network fetch.
   ///
   /// When [clearSnooze] is `true` (default for real-time updates), clears the snooze store
   /// so that newly published updates prompt the user immediately.
@@ -216,7 +200,7 @@ class RemoteConfigService {
         await _snoozeStore.clear();
       }
 
-      final rawConfig = _remoteConfig.getString(_configKey);
+      final rawConfig = await _provider.current();
 
       var info = UpdateInfo.fromRemoteConfigJson(
         json: rawConfig,
@@ -256,7 +240,7 @@ class RemoteConfigService {
     } catch (error, stackTrace) {
       if (logging) {
         Logger.e(
-          'Failed to evaluate active remote config: $error',
+          'Failed to evaluate active update config: $error',
           error: error,
           stackTrace: stackTrace,
           tag: flUpdaterLogTag,
@@ -272,53 +256,29 @@ class RemoteConfigService {
     }
   }
 
-  /// Listens to real-time Remote Config updates using [FirebaseRemoteConfig.onConfigUpdated].
-  ///
-  /// When the `fl_updater_config` parameter changes (or when a general template
-  /// update is pushed), activates the updated value immediately and calls
-  /// [onConfigUpdated].
-  StreamSubscription<RemoteConfigUpdate>? listenForUpdates(
+  /// Subscribes to the provider's [FlUpdaterConfigProvider.changes] stream and
+  /// calls [onConfigUpdated] for each event. Returns `null` when the provider
+  /// has no push support.
+  StreamSubscription<void>? listenForUpdates(
     Future<void> Function() onConfigUpdated, {
     bool? enableLogging,
   }) {
     final logging =
         (enableLogging ?? this.enableLogging) ?? flUpdaterLoggingEnabled;
     try {
-      return _remoteConfig.onConfigUpdated.listen(
-        (event) async {
-          if (event.updatedKeys.isEmpty ||
-              event.updatedKeys.contains(_configKey)) {
-            if (logging) {
-              Logger.i(
-                'Real-time update received for $_configKey (keys: ${event.updatedKeys}).',
-                tag: flUpdaterLogTag,
-              );
-            }
-            try {
-              final activated = await _remoteConfig.activate();
-              if (logging) {
-                Logger.i(
-                  'Activated real-time Remote Config update (new values activated: $activated).',
-                  tag: flUpdaterLogTag,
-                );
-              }
-            } catch (err, st) {
-              if (logging) {
-                Logger.e(
-                  'Failed to activate real-time Remote Config update: $err',
-                  error: err,
-                  stackTrace: st,
-                  tag: flUpdaterLogTag,
-                );
-              }
-            }
-            await onConfigUpdated();
+      final stream = _provider.changes;
+      if (stream == null) return null;
+      return stream.listen(
+        (_) async {
+          if (logging) {
+            Logger.i('Config change received.', tag: flUpdaterLogTag);
           }
+          await onConfigUpdated();
         },
         onError: (Object error, StackTrace stackTrace) {
           if (logging) {
             Logger.e(
-              'Error in real-time Remote Config update stream: $error',
+              'Error in config change stream: $error',
               error: error,
               stackTrace: stackTrace,
               tag: flUpdaterLogTag,
@@ -329,7 +289,7 @@ class RemoteConfigService {
     } catch (error, stackTrace) {
       if (logging) {
         Logger.e(
-          'Failed to subscribe to real-time Remote Config updates: $error',
+          'Failed to subscribe to config changes: $error',
           error: error,
           stackTrace: stackTrace,
           tag: flUpdaterLogTag,
