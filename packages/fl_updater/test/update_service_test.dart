@@ -315,4 +315,17 @@ void main() {
     expect(calls, 2);
     await sub?.cancel();
   });
+
+  test(
+      'listenForUpdates returns null (does not throw) when reading changes throws',
+      () {
+    final sub = UpdateService(provider: _ThrowingChangesProvider())
+        .listenForUpdates(() async {});
+    expect(sub, isNull);
+  });
+}
+
+class _ThrowingChangesProvider extends FakeProvider {
+  @override
+  Stream<void>? get changes => throw StateError('Firebase not initialised');
 }

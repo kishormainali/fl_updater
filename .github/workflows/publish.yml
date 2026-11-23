@@ -40,7 +40,14 @@ jobs:
         run: flutter analyze
 
       - name: Run tests
-        run: flutter test
+        run: |
+          for d in packages/*; do (cd "$d" && flutter test) || exit 1; done
 
-      - name: Publish to pub.dev
+      # Core first: fl_updater_firebase depends on it.
+      - name: Publish fl_updater
+        working-directory: packages/fl_updater
+        run: dart pub publish --force
+
+      - name: Publish fl_updater_firebase
+        working-directory: packages/fl_updater_firebase
         run: dart pub publish --force

@@ -11,7 +11,7 @@ A lightweight, cost-conscious Flutter plugin for **Firebase Remote Config-driven
 ## ✨ Features
 
 - 🚀 **Declarative Wrapper**: Wrap your `MaterialApp` with `FlUpdaterWrapper` for zero-boilerplate launch checks.
-- ⚡ **Imperative API**: Use `FlUpdater().checkForUpdate()` or `FlUpdater().showUpdateDialog()` for manual checks (e.g. from a settings screen).
+- ⚡ **Imperative API**: Use `FlUpdater(provider: ...).checkForUpdate()` or `FlUpdater(provider: ...).showUpdateDialog()` for manual checks (e.g. from a settings screen).
 - 🔄 **Soft & Force Updates**:
   - **Soft updates**: Optional update prompt with a "Later" button.
   - **Force updates**: Mandatory blocking dialog (`canPop: false`) when the installed version is below `min_version`.
@@ -26,28 +26,36 @@ A lightweight, cost-conscious Flutter plugin for **Firebase Remote Config-driven
 
 ## 📦 Installation
 
-Add `fl_updater` and `firebase_core` to your `pubspec.yaml`:
+`fl_updater` is provider-agnostic. Pick where the update config comes from:
+
+**Firebase Remote Config**
 
 ```yaml
 dependencies:
-  flutter:
-    sdk: flutter
-  fl_updater: ^0.0.1
+  fl_updater: ^0.2.0
+  fl_updater_firebase: ^0.2.0
   firebase_core: ^4.13.0 # or latest
 ```
 
-Then ensure Firebase is initialized in your `main()` method:
+```dart
+await Firebase.initializeApp();
+FlUpdaterWrapper(provider: FirebaseConfigProvider(), child: child!);
+```
+
+**Your own API** (no Firebase needed)
 
 ```dart
-import 'package:flutter/material.dart';
-import 'package:firebase_core/firebase_core.dart';
-
-Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
-  runApp(const MyApp());
-}
+FlUpdaterWrapper(
+  provider: ApiConfigProvider(
+    // Return the `fl_updater_config` JSON string (schema below).
+    fetch: () async => (await dio.get<String>(url)).data!,
+  ),
+  child: child!,
+);
 ```
+
+The API provider has no push updates; it re-fetches on each check. Implement
+`FlUpdaterConfigProvider` for any other backend.
 
 ---
 
@@ -140,6 +148,8 @@ Not part of Remote Config — pass these directly to `FlUpdaterWrapper` / the im
 
 ## 🚀 Usage
 
+> Snippets below omit the now-required `provider:` argument on `FlUpdaterWrapper` for brevity.
+
 ### 1. Automatic Usage (Recommended)
 
 Wrap your `MaterialApp` with `FlUpdaterWrapper` inside the `builder` callback:
@@ -174,7 +184,7 @@ This checks Remote Config once when the app is launched and displays the update 
 Trigger an update check manually, such as from an "About" or "Settings" screen:
 
 ```dart
-final updater = FlUpdater();
+final updater = FlUpdater(provider: provider);
 
 // Check and show dialog if an update is available:
 await updater.showUpdateDialog(
@@ -187,7 +197,7 @@ await updater.showUpdateDialog(
 Or check status without displaying a UI:
 
 ```dart
-final updater = FlUpdater();
+final updater = FlUpdater(provider: provider);
 final info = await updater.checkForUpdate(
   iosAppId: '123456789',
 );
@@ -288,7 +298,7 @@ Or reset it manually via code:
 await FlUpdater.clearSnoozeStore();
 
 // Or on an instance:
-final updater = FlUpdater();
+final updater = FlUpdater(provider: provider);
 await updater.clearSnooze();
 ```
 

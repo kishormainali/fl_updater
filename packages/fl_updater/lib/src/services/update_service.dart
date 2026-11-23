@@ -265,25 +265,37 @@ class UpdateService {
   }) {
     final logging =
         (enableLogging ?? this.enableLogging) ?? flUpdaterLoggingEnabled;
-    final stream = _provider.changes;
-    if (stream == null) return null;
-    return stream.listen(
-      (_) async {
-        if (logging) {
-          Logger.i('Config change received.', tag: flUpdaterLogTag);
-        }
-        await onConfigUpdated();
-      },
-      onError: (Object error, StackTrace stackTrace) {
-        if (logging) {
-          Logger.e(
-            'Error in config change stream: $error',
-            error: error,
-            stackTrace: stackTrace,
-            tag: flUpdaterLogTag,
-          );
-        }
-      },
-    );
+    try {
+      final stream = _provider.changes;
+      if (stream == null) return null;
+      return stream.listen(
+        (_) async {
+          if (logging) {
+            Logger.i('Config change received.', tag: flUpdaterLogTag);
+          }
+          await onConfigUpdated();
+        },
+        onError: (Object error, StackTrace stackTrace) {
+          if (logging) {
+            Logger.e(
+              'Error in config change stream: $error',
+              error: error,
+              stackTrace: stackTrace,
+              tag: flUpdaterLogTag,
+            );
+          }
+        },
+      );
+    } catch (error, stackTrace) {
+      if (logging) {
+        Logger.e(
+          'Failed to subscribe to config changes: $error',
+          error: error,
+          stackTrace: stackTrace,
+          tag: flUpdaterLogTag,
+        );
+      }
+      return null;
+    }
   }
 }

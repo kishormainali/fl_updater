@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:fl_updater/fl_updater.dart';
+import 'package:fl_updater_firebase/fl_updater_firebase.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -20,6 +21,10 @@ Future<void> main() async {
 const _iosAppId = '123456789';
 const _androidPackageId = 'com.kishormainali.fl_updater_example';
 
+// Swap for `ApiConfigProvider(fetch: () async => jsonStringFromYourApi)` to use
+// your own backend instead of Firebase.
+final _provider = FirebaseConfigProvider();
+
 class ExampleApp extends StatelessWidget {
   const ExampleApp({super.key});
 
@@ -33,6 +38,7 @@ class ExampleApp extends StatelessWidget {
       ),
       // FlUpdaterWrapper automatically evaluates update status on launch
       builder: (context, child) => FlUpdaterWrapper(
+        provider: _provider,
         iosAppId: _iosAppId,
         androidPackageId: _androidPackageId,
         // enabled is forced to true here for example/testing purposes.
@@ -55,7 +61,7 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  final _updater = FlUpdater();
+  final _updater = FlUpdater(provider: _provider);
   UpdateInfo? _lastCheckedInfo;
   bool _isLoading = false;
 
