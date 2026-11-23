@@ -38,22 +38,23 @@ class FirebaseConfigProvider implements FlUpdaterConfigProvider {
   /// Built from `where`/`asyncMap` rather than an `async*` generator: cancelling
   /// a generator blocked on its source stream hangs until the next event.
   @override
-  Stream<void> get changes => _rc.onConfigUpdated
-          .where((event) =>
-              event.updatedKeys.isEmpty ||
-              event.updatedKeys.contains(_configKey))
-          .asyncMap((_) async {
-        try {
-          await _rc.activate();
-        } catch (error, stackTrace) {
-          if (FlUpdater.enableLogging) {
-            Logger.e(
-              'Failed to activate real-time Remote Config update: $error',
-              error: error,
-              stackTrace: stackTrace,
-              tag: _logTag,
-            );
-          }
+  Stream<void> get changes {
+    return _rc.onConfigUpdated
+        .where((event) =>
+            event.updatedKeys.isEmpty || event.updatedKeys.contains(_configKey))
+        .asyncMap((_) async {
+      try {
+        await _rc.activate();
+      } catch (error, stackTrace) {
+        if (FlUpdater.enableLogging) {
+          Logger.e(
+            'Failed to activate real-time Remote Config update: $error',
+            error: error,
+            stackTrace: stackTrace,
+            tag: _logTag,
+          );
         }
-      });
+      }
+    });
+  }
 }
