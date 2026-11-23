@@ -1,0 +1,75 @@
+name: ci
+
+on:
+  push:
+    # Branches only. Tag pushes are releases; publish.yml verifies the tagged
+    # package on its own.
+    branches: ['**']
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dart:
+    name: Analyze, format, tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.9
+          cache: true
+      - run: flutter --version
+      - run: dart pub get
+      - name: Format
+        run: dart format --output=none --set-exit-if-changed .
+      - name: Analyze
+        run: |
+          for d in packages/fl_updater packages/fl_updater_firebase example; do
+            (cd "$d" && flutter analyze --no-fatal-infos) || exit 1
+          done
+      - name: Tests
+        run: |
+          for d in packages/fl_updater packages/fl_updater_firebase example; do
+            (cd "$d" && flutter test) || exit 1
+          done
+      - name: Publish dry run (core)
+        working-directory: packages/fl_updater
+        run: dart pub publish --dry-run
+
+  android:
+    name: Android example build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.9
+          cache: true
+      - run: dart pub get
+      - name: flutter build apk --debug
+        working-directory: example
+        run: flutter build apk --debug
+
+  ios:
+    name: iOS example build
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.9
+          cache: true
+      - run: dart pub get
+      - name: flutter build ios --no-codesign --simulator
+        working-directory: example
+        run: flutter build ios --no-codesign --simulator

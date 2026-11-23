@@ -1,53 +1,148 @@
 name: Publish to pub.dev
 
+# Tag format: <package_name>-v<version>, e.g. fl_updater-v0.2.2
+#             (pre-releases: fl_updater_firebase-v0.3.0-beta.1)
+# On pub.dev (package admin > Automated publishing > GitHub Actions), per package:
+#   repository: kishormainali/fl_updater
+#   tag pattern: <package_name>-v{{version}}
+#   environment: pub.dev
+# Publish order matters: fl_updater -> fl_updater_firebase.
+# Push the firebase tag only after the core version it needs is live on pub.dev.
 on:
   push:
     tags:
-      # Per-package tags, e.g. fl_updater-v0.2.1 / fl_updater_firebase-v0.2.0.
-      # Set the same patterns (`<package>-v{{version}}`) in each package's
-      # pub.dev automated-publishing settings.
-      - 'fl_updater-v[0-9]+.[0-9]+.[0-9]+*'
-      - 'fl_updater_firebase-v[0-9]+.[0-9]+.[0-9]+*'
-
-permissions:
-  id-token: write # Required for pub.dev OIDC authentication
-  contents: read
+      - 'fl_updater*-v[0-9]+.[0-9]+.[0-9]+'
+      - 'fl_updater*-v[0-9]+.[0-9]+.[0-9]+-*'
 
 jobs:
-  publish:
-    name: Publish Package
+  # ── 1. Resolve package/version from the tag and check it against pubspec ────
+  validate-version:
+    name: Validate version
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write # Required for pub.dev OIDC authentication
-      contents: read
+    outputs:
+      package: ${{ steps.tag.outputs.package }}
+      version: ${{ steps.tag.outputs.version }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+      - name: Check tag matches pubspec version
+        id: tag
+        run: |
+          PACKAGE="${GITHUB_REF_NAME%-v*}"
+          VERSION="${GITHUB_REF_NAME##*-v}"
+          PUBSPEC_VERSION="$(grep '^version:' "packages/$PACKAGE/pubspec.yaml" | awk '{print $2}')"
+          echo "Package: $PACKAGE  tag: $VERSION  pubspec: $PUBSPEC_VERSION"
+          if [ "$VERSION" != "$PUBSPEC_VERSION" ]; then
+            echo "❌  Tag version ($VERSION) does not match packages/$PACKAGE/pubspec.yaml ($PUBSPEC_VERSION)"
+            exit 1
+          fi
+          echo "package=$PACKAGE" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+  # ── 2. Verify format, analysis and tests before publishing ──────────────────
+  test:
+    name: Verify tests
+    runs-on: ubuntu-latest
+    needs: validate-version
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
         with:
-          channel: 'stable'
+          channel: stable
+          flutter-version: 3.47.9
           cache: true
 
-      - name: Set up Dart (for OIDC auth with pub.dev)
-        uses: dart-lang/setup-dart@v1
+      - run: dart pub get
 
-      - name: Install dependencies
-        run: flutter pub get
-
-      - name: Verify formatting
+      - name: Format
         run: dart format --output=none --set-exit-if-changed .
 
-      - name: Analyze code
-        run: flutter analyze
+      # Only the package being published; a sibling's failure is irrelevant
+      # to this release.
+      - name: Analyze
+        working-directory: packages/${{ needs.validate-version.outputs.package }}
+        run: flutter analyze --no-fatal-infos
 
       - name: Run tests
-        run: |
-          for d in packages/*; do (cd "$d" && flutter test) || exit 1; done
+        working-directory: packages/${{ needs.validate-version.outputs.package }}
+        run: flutter test
 
-      - name: Publish package named by the tag
+  # ── 3. Publish using OIDC (no stored credentials) ───────────────────────────
+  publish:
+    name: Publish to pub.dev
+    runs-on: ubuntu-latest
+    needs: [validate-version, test]
+
+    # Must match the environment configured under:
+    #   pub.dev package admin → Automated publishing → GitHub Actions
+    environment: pub.dev
+
+    permissions:
+      id-token: write # Required for OIDC token exchange with pub.dev
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Provisions the OIDC token pub.dev needs (exported as PUB_TOKEN). Must run
+      # BEFORE the Flutter step: the Flutter SDK's `dart` shadows this one (needed
+      # to publish Flutter packages) but reuses the token.
+      - name: Set up Dart and pub.dev OIDC token
+        uses: dart-lang/setup-dart@v1
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.9
+          cache: true
+
+      - run: dart pub get
+
+      - name: Publish - dry run
+        working-directory: packages/${{ needs.validate-version.outputs.package }}
+        run: dart pub publish --dry-run
+
+      - name: Publish
+        working-directory: packages/${{ needs.validate-version.outputs.package }}
+        run: dart pub publish --force
+
+  # ── 4. Create a GitHub Release for the tag ──────────────────────────────────
+  github-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [validate-version, publish]
+
+    permissions:
+      contents: write # Required to create a release via GITHUB_TOKEN
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pulls this version's section out of the package's CHANGELOG.md.
+      - name: Extract release notes from CHANGELOG.md
         run: |
-          pkg="${GITHUB_REF_NAME%%-v*}"
-          cd "packages/$pkg"
-          dart pub publish --force
+          VERSION="${{ needs.validate-version.outputs.version }}"
+          awk -v ver="$VERSION" '
+            /^## / {
+              if (found) exit
+              if ($0 == "## " ver || $0 == "## [" ver "]") { found=1; next }
+              next
+            }
+            found { print }
+          ' "packages/${{ needs.validate-version.outputs.package }}/CHANGELOG.md" | sed '/^---$/d' > release_notes.md
+
+          if [ ! -s release_notes.md ]; then
+            echo "_No CHANGELOG.md entry found for $VERSION._" > release_notes.md
+          fi
+          cat release_notes.md
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          name: ${{ github.ref_name }}
+          body_path: release_notes.md
+          # Anything with a `-` after the version (e.g. -beta.1) is a pre-release.
+          prerelease: ${{ contains(needs.validate-version.outputs.version, '-') }}
