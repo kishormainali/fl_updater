@@ -7,7 +7,7 @@
 * **Firebase moved to its own package.** `fl_updater` no longer depends on `firebase_remote_config`; add `fl_updater_firebase` and pass `FirebaseConfigProvider()`.
 * `FlUpdater` and `FlUpdaterWrapper` now require `provider:` (a `FlUpdaterConfigProvider`).
 * `RemoteConfigService` is replaced by `UpdateService` (takes a `provider`).
-* Minimum SDK is now Dart 3.6 / Flutter 3.27 (repo is a pub workspace).
+* Minimum SDK is now Dart 3.6 / Flutter 3.47 (repo is a pub workspace).
 
 ### Added
 

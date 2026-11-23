@@ -2,7 +2,7 @@
 
 > Flutter plugin that shows an app-update dialog (soft/snoozable or blocking force update) driven by a remote JSON config, and opens the App Store / Play Store natively. Provider-agnostic: config comes from Firebase Remote Config (`fl_updater_firebase`) or your own API (`ApiConfigProvider`).
 
-This package lives in a Dart pub workspace (repo root: https://github.com/kishormainali/fl_updater) (Dart >=3.6, Flutter >=3.27):
+This package lives in a Dart pub workspace (repo root: https://github.com/kishormainali/fl_updater) (Dart >=3.6, Flutter >=3.47):
 - `packages/fl_updater` (this package) — core: `FlUpdater`, `FlUpdaterWrapper`, `FlUpdaterConfigProvider`, `ApiConfigProvider`, `UpdateInfo`, `UpdateService`, dialogs, snooze store, native store-opening (Kotlin/Swift).
 - `packages/fl_updater_firebase` — `FirebaseConfigProvider` (depends on `firebase_remote_config`; core does not).
 - `example/` — sample app.

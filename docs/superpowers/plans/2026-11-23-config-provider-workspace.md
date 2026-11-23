@@ -11,7 +11,7 @@
 **Spec:** `docs/superpowers/specs/2026-11-23-config-provider-workspace-design.md`
 
 ## Global Constraints
-- Environment: `sdk: ^3.6.0`, `flutter: '>=3.27.0'` in every pubspec (workspace members add `resolution: workspace`).
+- Environment: `sdk: ^3.6.0`, `flutter: '>=3.47.0'` in every pubspec (workspace members add `resolution: workspace`).
 - Core has no `firebase_*` dependency and no HTTP dependency.
 - `fl_updater_config` JSON schema and `UpdateInfo.fromRemoteConfigJson` are unchanged.
 - Version `0.2.0` for both packages; CHANGELOG entry notes the breaking `provider:` requirement.

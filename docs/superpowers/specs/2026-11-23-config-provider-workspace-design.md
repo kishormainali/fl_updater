@@ -15,7 +15,7 @@ config provider in its own package; a callback-based API provider ships in core.
 - No behaviour change to version comparison, snooze, dialogs.
 
 ## Constraints
-- Workspaces need Dart >=3.6 / Flutter >=3.27 (bump from 3.4 / 3.24).
+- Workspaces need Dart >=3.6 / Flutter >=3.47 (bump from 3.4 / 3.24).
 - Breaking: `FlUpdater` and `FlUpdaterWrapper` require `provider:`; `RemoteConfigService` is renamed/reshaped (0.2.0, CHANGELOG entry).
 
 ## Approaches
