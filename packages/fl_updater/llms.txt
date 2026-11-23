@@ -2,8 +2,8 @@
 
 > Flutter plugin that shows an app-update dialog (soft/snoozable or blocking force update) driven by a remote JSON config, and opens the App Store / Play Store natively. Provider-agnostic: config comes from Firebase Remote Config (`fl_updater_firebase`) or your own API (`ApiConfigProvider`).
 
-This repo is a Dart pub workspace (Dart >=3.6, Flutter >=3.27):
-- `packages/fl_updater` — core: `FlUpdater`, `FlUpdaterWrapper`, `FlUpdaterConfigProvider`, `ApiConfigProvider`, `UpdateInfo`, `UpdateService`, dialogs, snooze store, native store-opening (Kotlin/Swift).
+This package lives in a Dart pub workspace (repo root: https://github.com/kishormainali/fl_updater) (Dart >=3.6, Flutter >=3.27):
+- `packages/fl_updater` (this package) — core: `FlUpdater`, `FlUpdaterWrapper`, `FlUpdaterConfigProvider`, `ApiConfigProvider`, `UpdateInfo`, `UpdateService`, dialogs, snooze store, native store-opening (Kotlin/Swift).
 - `packages/fl_updater_firebase` — `FirebaseConfigProvider` (depends on `firebase_remote_config`; core does not).
 - `example/` — sample app.
 
@@ -54,19 +54,19 @@ Custom backend: implement `FlUpdaterConfigProvider { Future<String?> fetch({Dura
 
 ## Docs
 
-- [Core README](packages/fl_updater/README.md): install, Firebase setup, full usage and options
-- [Firebase provider README](packages/fl_updater_firebase/README.md)
-- [Design spec](docs/superpowers/specs/2026-11-23-config-provider-workspace-design.md): why the provider split exists
-- [Changelog](packages/fl_updater/CHANGELOG.md): breaking changes in 0.2.0
+- [Core README](README.md): install, Firebase setup, full usage and options
+- [Firebase provider README](https://github.com/kishormainali/fl_updater/blob/main/packages/fl_updater_firebase/README.md)
+- [Design spec](https://github.com/kishormainali/fl_updater/blob/main/docs/superpowers/specs/2026-11-23-config-provider-workspace-design.md): why the provider split exists
+- [Changelog](CHANGELOG.md): breaking changes in 0.2.0
 
 ## Source map
 
-- [config_provider.dart](packages/fl_updater/lib/src/providers/config_provider.dart): provider interface
-- [api_config_provider.dart](packages/fl_updater/lib/src/providers/api_config_provider.dart)
-- [update_service.dart](packages/fl_updater/lib/src/services/update_service.dart): fetch → evaluate → snooze policy
-- [update_info.model.dart](packages/fl_updater/lib/src/models/update_info.model.dart): JSON schema resolution, `UpdateInfo`
-- [update_wrapper.dart](packages/fl_updater/lib/src/widgets/update_wrapper.dart): `FlUpdaterWrapper`
-- [firebase_config_provider.dart](packages/fl_updater_firebase/lib/src/firebase_config_provider.dart)
+- [config_provider.dart](lib/src/providers/config_provider.dart): provider interface
+- [api_config_provider.dart](lib/src/providers/api_config_provider.dart)
+- [update_service.dart](lib/src/services/update_service.dart): fetch → evaluate → snooze policy
+- [update_info.model.dart](lib/src/models/update_info.model.dart): JSON schema resolution, `UpdateInfo`
+- [update_wrapper.dart](lib/src/widgets/update_wrapper.dart): `FlUpdaterWrapper`
+- [firebase_config_provider.dart](https://github.com/kishormainali/fl_updater/blob/main/packages/fl_updater_firebase/lib/src/firebase_config_provider.dart)
 
 ## Optional
 
